@@ -1065,7 +1065,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
   const usdM2 = m2pond>0 && prop.precioPedido ? prop.precioPedido/m2pond : null;
-  const excluyentesActivos = EXCLUYENTES_DISPONIBLES.filter(e => (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes(e.id));
+  const excluyentesActivos = EXCLUYENTES_DISPONIBLES.filter(e => (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes(e.id) && e.id !== 'cochera');
   const exCumple = excluyentesActivos.filter(e => prop.excluyentes?.[e.id]).length;
   const heroColor = isAdmin && analisis.estado!=='sin-datos'
     ? (analisis.estado==='rojo'?'#F7C1C1':analisis.estado==='amber'?'#FAC775':'#C0DD97')
