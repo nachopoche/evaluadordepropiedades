@@ -21,7 +21,6 @@ const ZONAS = [
 
 const TIPOS = ['PH','Casa','Departamento','Otro'];
 const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
-const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
 const DISPOSICIONES = ['Frente','Contrafrente','Interior','Lateral'];
 const ANUNCIANTES = ['Inmobiliaria','Dueño directo'];
 
