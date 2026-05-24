@@ -1034,13 +1034,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
             defaultValue={prop.visita?.impresion}
             onCommit={v=>update('visita.impresion',v)}
             rows={6}
-            placeholder={"Pensá en:
-• Olor / humedad / luz natural
-• Ruido (vecinos, calle, obra cerca)
-• Estado real vs fotos del aviso
-• Qué te encantó / qué te chocó
-• Entorno: parques, comercios, sensación del barrio
-• Cosas a mejorar y cuánto costaría"}
+            placeholder={`Pensá en:\n• Olor / humedad / luz natural\n• Ruido (vecinos, calle, obra cerca)\n• Estado real vs fotos del aviso\n• Qué te encantó / qué te chocó\n• Entorno: parques, comercios, sensación del barrio\n• Cosas a mejorar y cuánto costaría`}
           />
         </Field>
         <Field label="Escuelas / jardines cercanos"><TextArea defaultValue={prop.escuelas} onCommit={v=>update('escuelas',v)} rows={2} /></Field>
