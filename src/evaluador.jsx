@@ -110,11 +110,15 @@ const colorPuntaje = p => p>=80 ? c.green : p>=60 ? c.amber : c.red;
 const semaforoBg = p => p>=80 ? '#C0DD97' : p>=60 ? '#FAC775' : '#F7C1C1';
 const cumpleExcluyentes = (prop, excluyentesActivos, ambientesMinimos) => {
   const activos = excluyentesActivos || EXCLUYENTES_DEFAULT;
-  const pool = EXCLUYENTES_DISPONIBLES.filter(e => activos.includes(e.id));
-  const cumpleBooleanos = pool.every(e => prop.excluyentes?.[e.id]===true);
+  // Cochera se maneja desde Datos físicos, no como booleano manual
+  const poolSinCochera = EXCLUYENTES_DISPONIBLES.filter(e => activos.includes(e.id) && e.id !== 'cochera');
+  const cumpleBooleanos = poolSinCochera.every(e => prop.excluyentes?.[e.id]===true);
+  // Cochera: si está activa como excluyente, chequear prop.cochera
+  const cocheraActiva = activos.includes('cochera');
+  const cumpleCochera = !cocheraActiva || prop.cochera === true;
   const minAmb = ambientesMinimos || 0;
   const cumpleAmbientes = minAmb === 0 || !prop.ambientes || prop.ambientes >= minAmb;
-  return cumpleBooleanos && cumpleAmbientes;
+  return cumpleBooleanos && cumpleCochera && cumpleAmbientes;
 };
 
 const calcularAnalisis = (prop, pres, config) => {
@@ -1267,15 +1271,33 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
       </Section>
 
       {/* EXCLUYENTES */}
-      <Section icon={ListChecks} title="Excluyentes" badge={<Badge bg={exCumple===excluyentesActivos.length?c.greenSoft:c.amberSoft} color={exCumple===excluyentesActivos.length?c.green:c.amber}>Cumple {exCumple}/{excluyentesActivos.length}</Badge>} open={sec.excluyentes} onToggle={()=>toggle('excluyentes')}>
-        {excluyentesActivos.length === 0 ? (
-          <div style={{ fontSize:13, color:c.textMuted, padding:'8px 0' }}>No hay excluyentes configurados. Definílos en Configuración.</div>
-        ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
-            {excluyentesActivos.map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
-          </div>
-        )}
-      </Section>
+      {(() => {
+        // Cochera se lee de Datos físicos, no es toggle manual
+        const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
+        const totalExcl = excluyentesActivos.length + (cocheraActiva ? 1 : 0);
+        const cocheraCumple = cocheraActiva ? prop.cochera === true : true;
+        const cumpleTotal = exCumple === excluyentesActivos.length && cocheraCumple;
+        const cumpleCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
+        return (
+          <Section icon={ListChecks} title="Excluyentes" badge={<Badge bg={cumpleTotal?c.greenSoft:c.amberSoft} color={cumpleTotal?c.green:c.amber}>Cumple {cumpleCount}/{totalExcl}</Badge>} open={sec.excluyentes} onToggle={()=>toggle('excluyentes')}>
+            {totalExcl === 0 ? (
+              <div style={{ fontSize:13, color:c.textMuted, padding:'8px 0' }}>No hay excluyentes configurados. Definílos en Configuración.</div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
+                {excluyentesActivos.map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
+                {cocheraActiva && (
+                  <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
+                    <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
+                      <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:prop.cochera?18:2, boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                    </div>
+                    <span style={{ fontSize:14, color:c.textMuted }}>Cochera <span style={{ fontSize:11, color:c.textSubtle }}>(desde Datos físicos)</span></span>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        );
+      })()}
 
       {/* PUNTAJES */}
       {isAdmin && (
