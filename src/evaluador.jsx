@@ -1298,7 +1298,17 @@ export default function App() {
     unsubs.push(onSnapshot(doc(db, 'config', 'main'), async (snap) => {
       if (snap.exists()) {
         const data = snap.data();
-        if (data.criterios) setCriterios(data.criterios);
+        if (data.criterios) {
+          // Si los criterios guardados no tienen campo 'tipo', son del sistema viejo → migrar
+          const necesitaMigrar = data.criterios.some(cr => !cr.tipo);
+          if (necesitaMigrar && isAdmin) {
+            // Guardar los nuevos defaults en Firestore y usarlos
+            await updateDoc(doc(db, 'config', 'main'), { criterios: CRITERIOS_DEFAULT });
+            setCriterios(CRITERIOS_DEFAULT);
+          } else {
+            setCriterios(data.criterios);
+          }
+        }
         if (data.presupuesto) setPresupuesto(data.presupuesto);
         if (data.configuracion) setConfig(data.configuracion);
       } else {
