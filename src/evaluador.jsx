@@ -19,7 +19,8 @@ const ZONAS = [
   'Villa Real','Villa Riachuelo','Villa Santa Rita','Villa Soldati','Villa Urquiza','Otra'
 ];
 
-const TIPOS = ['PH','Casa','Departamento','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex','Otro'];
+const TIPOS = ['PH','Casa','Departamento','Otro'];
+const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
 const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
 const DISPOSICIONES = ['Frente','Contrafrente','Interior','Lateral'];
 const ANUNCIANTES = ['Inmobiliaria','Dueño directo'];
@@ -27,7 +28,6 @@ const ANUNCIANTES = ['Inmobiliaria','Dueño directo'];
 // Pool completo de excluyentes disponibles — el usuario elige cuáles aplican en Configuración
 const EXCLUYENTES_DISPONIBLES = [
   {id:'terraza',        label:'Terraza / Jardín / Patio'},
-  {id:'ambientes3',     label:'Mínimo 3 ambientes'},
   {id:'banoCompleto',   label:'1 baño completo'},
   {id:'cocinaAmplia',   label:'Cocina amplia'},
   {id:'luminoso',       label:'Luminoso'},
@@ -41,8 +41,8 @@ const EXCLUYENTES_DISPONIBLES = [
   {id:'extSpacious',    label:'Espacio exterior amplio'},
 ];
 
-// Default de excluyentes activos (IDs) — se guarda en config/main.configuracion.excluyentesActivos
-const EXCLUYENTES_DEFAULT = ['terraza','ambientes3','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'];
+// Default de excluyentes activos (IDs)
+const EXCLUYENTES_DEFAULT = ['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'];
 
 // 12 criterios — todos manuales (slider 0-10 por propiedad)
 const CRITERIOS_DEFAULT = [
@@ -109,10 +109,13 @@ const calcularPuntaje = (puntajes, criterios) => {
 
 const colorPuntaje = p => p>=80 ? c.green : p>=60 ? c.amber : c.red;
 const semaforoBg = p => p>=80 ? '#C0DD97' : p>=60 ? '#FAC775' : '#F7C1C1';
-const cumpleExcluyentes = (prop, excluyentesActivos) => {
+const cumpleExcluyentes = (prop, excluyentesActivos, ambientesMinimos) => {
   const activos = excluyentesActivos || EXCLUYENTES_DEFAULT;
   const pool = EXCLUYENTES_DISPONIBLES.filter(e => activos.includes(e.id));
-  return pool.every(e => prop.excluyentes?.[e.id]===true);
+  const cumpleBooleanos = pool.every(e => prop.excluyentes?.[e.id]===true);
+  const minAmb = ambientesMinimos || 0;
+  const cumpleAmbientes = minAmb === 0 || !prop.ambientes || prop.ambientes >= minAmb;
+  return cumpleBooleanos && cumpleAmbientes;
 };
 
 const calcularAnalisis = (prop, pres, config) => {
@@ -668,7 +671,7 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 
 const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) => {
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
-  const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos);
+  const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos);
   const analisis = calcularAnalisis(prop, presupuesto, config);
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
@@ -709,6 +712,19 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
           )}
         </div>
         {!cumple && <div style={{ marginTop:8, fontSize:11, color:c.red, display:'flex', alignItems:'center', gap:4 }}><AlertCircle size={11} />No cumple excluyentes</div>}
+        {(() => {
+          const hist = prop.aviso?.historialViews || [];
+          if (hist.length < 2) return null;
+          const diffDias = Math.max(1, (new Date(hist[hist.length-1].fecha) - new Date(hist[0].fecha)) / (1000*60*60*24));
+          const vxd = (hist[hist.length-1].views - hist[0].views) / diffDias;
+          const emoji = vxd < 10 ? '🔴' : vxd <= 30 ? '🟡' : '🟢';
+          const label = vxd < 10 ? 'Frío' : vxd <= 30 ? 'Normal' : 'Caliente';
+          return (
+            <div style={{ marginTop:6, fontSize:11, color:c.textMuted, display:'flex', alignItems:'center', gap:4 }}>
+              {emoji} {label} · {vxd.toFixed(1)} views/día
+            </div>
+          );
+        })()}
       </div>
     </Card>
   );
@@ -781,7 +797,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   }, [propiedades]);
 
   const topProp = useMemo(() => {
-    const activas = propiedades.filter(p => p.estado !== 'Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos)).map(p => ({...p, _puntaje:calcularPuntaje(p.puntajes,criterios)}));
+    const activas = propiedades.filter(p => p.estado !== 'Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos)).map(p => ({...p, _puntaje:calcularPuntaje(p.puntajes,criterios)}));
     return activas.sort((a,b) => b._puntaje - a._puntaje)[0] || null;
   }, [propiedades, criterios, config]);
 
@@ -954,6 +970,78 @@ const SemaforoDemanda = ({ prop, update }) => {
 };
 
 // ============================================================
+// HISTORIAL DE PRECIO
+// ============================================================
+
+const HistorialPrecio = ({ prop, update }) => {
+  const historial = prop.aviso?.historialPrecio || [];
+  const [nuevaFecha, setNuevaFecha] = React.useState('');
+  const [nuevoPrecio, setNuevoPrecio] = React.useState('');
+
+  const agregarRegistro = () => {
+    if (!nuevaFecha || !nuevoPrecio) return;
+    const nuevo = { fecha: nuevaFecha, precio: parseInt(nuevoPrecio) };
+    const ordenado = [...historial, nuevo].sort((a,b) => a.fecha.localeCompare(b.fecha));
+    update('aviso.historialPrecio', ordenado);
+    setNuevaFecha('');
+    setNuevoPrecio('');
+  };
+
+  const eliminarRegistro = (i) => {
+    update('aviso.historialPrecio', historial.filter((_,idx) => idx !== i));
+  };
+
+  // Detectar si bajó el precio
+  let bajada = null;
+  if (historial.length >= 2) {
+    const primero = historial[0];
+    const ultimo = historial[historial.length - 1];
+    const diff = ultimo.precio - primero.precio;
+    const pct = primero.precio > 0 ? (diff / primero.precio * 100).toFixed(1) : 0;
+    if (diff < 0) bajada = { diff: Math.abs(diff), pct: Math.abs(pct) };
+  }
+
+  return (
+    <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
+      <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Historial de precio</div>
+
+      {bajada && (
+        <div style={{ marginBottom:12, padding:'10px 14px', background:c.greenSoft, borderRadius:10, fontSize:13, color:c.green, fontWeight:500 }}>
+          📉 Bajó {fmtUSD(bajada.diff)} ({bajada.pct}%) desde la publicación
+        </div>
+      )}
+
+      {historial.length > 0 && (
+        <div style={{ marginBottom:12 }}>
+          {historial.map((r, i) => (
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:`1px solid ${c.border}` }}>
+              <span style={{ fontSize:12, color:c.textMuted, minWidth:90 }}>{r.fecha}</span>
+              <span style={{ fontSize:13, fontWeight:500 }}>{fmtUSD(r.precio)}</span>
+              {i > 0 && historial[i-1] && (
+                <span style={{ fontSize:11, color: r.precio < historial[i-1].precio ? c.green : r.precio > historial[i-1].precio ? c.red : c.textSubtle }}>
+                  {r.precio < historial[i-1].precio ? '↓' : r.precio > historial[i-1].precio ? '↑' : '='} {fmtUSD(Math.abs(r.precio - historial[i-1].precio))}
+                </span>
+              )}
+              <button onClick={()=>eliminarRegistro(i)} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:2, marginLeft:'auto' }}><X size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
+        <Field label="Fecha" style={{ flex:1, marginBottom:0 }}>
+          <input type="date" value={nuevaFecha} onChange={e=>setNuevaFecha(e.target.value)} style={{ ...iS }} />
+        </Field>
+        <Field label="Precio (USD)" style={{ flex:1, marginBottom:0 }}>
+          <input type="number" value={nuevoPrecio} onChange={e=>setNuevoPrecio(e.target.value)} placeholder="Ej: 285000" style={{ ...iS }} />
+        </Field>
+        <Button variant="secondary" size="sm" onClick={agregarRegistro} style={{ marginBottom:14 }}><Plus size={13} /> Agregar</Button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
 // DETALLE VIEW
 // ============================================================
 
@@ -1048,6 +1136,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
           <Field label="Dirección"><TextInput defaultValue={prop.direccion} onCommit={v=>update('direccion',v)} placeholder="Calle 1234" /></Field>
           <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>update('zona',v)} options={ZONAS} /></Field>
           <Field label="Tipo de propiedad"><Select value={prop.tipo} onChange={v=>update('tipo',v)} options={TIPOS} /></Field>
+          <Field label="Subtipo"><Select value={prop.subtipo} onChange={v=>update('subtipo',v)} options={SUBTIPOS} /></Field>
           <Field label="Disposición"><Select value={prop.disposicion} onChange={v=>update('disposicion',v)} options={DISPOSICIONES} /></Field>
           <Field label="Tipo de anunciante"><Select value={prop.anunciante} onChange={v=>update('anunciante',v)} options={ANUNCIANTES} /></Field>
           <Field label="Link al aviso"><TextInput defaultValue={prop.linkAviso} onCommit={v=>update('linkAviso',v)} placeholder="https://..." /></Field>
@@ -1058,25 +1147,26 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
       </Section>
 
       {/* COMODIDADES */}
+      {/* COMODIDADES */}
       <Section icon={Star} title="Comodidades" open={sec.comodidades} onToggle={()=>toggle('comodidades')}>
         <div style={{ marginBottom:14 }}>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Espacios y amenities</div>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>De la propiedad</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
             {[
-              {id:'pileta',label:'Pileta'},{id:'parrilla',label:'Parrilla'},{id:'balcon',label:'Balcón'},
-              {id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},{id:'jardin',label:'Jardín'},
-              {id:'baulera',label:'Baulera'},{id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},
-              {id:'quincho',label:'Quincho'},{id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},
+              {id:'balcon',label:'Balcón'},{id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},
+              {id:'jardin',label:'Jardín'},{id:'pileta',label:'Pileta'},{id:'quincho',label:'Quincho'},
+              {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
+              {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
+              {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
             ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
           </div>
         </div>
         <div>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Servicios del edificio</div>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
             {[
-              {id:'ascensorCom',label:'Ascensor'},{id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},
-              {id:'laundry',label:'Laundry'},{id:'toilette',label:'Toilette'},{id:'suite',label:'Suite'},
-              {id:'vestidor',label:'Vestidor'},{id:'dependencia',label:'Dep. de servicio'},
+              {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
+              {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
             ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
           </div>
         </div>
@@ -1206,6 +1296,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
           <Field label="Aviso destacado / premium"><div style={{ paddingTop:4 }}><Toggle checked={prop.destacado} onChange={v=>update('destacado',v)} label={prop.destacado?'Sí':'No'} /></div></Field>
         </div>
         <SemaforoDemanda prop={prop} update={update} />
+        <HistorialPrecio prop={prop} update={update} />
       </Section>
 
       {/* PROCESO */}
@@ -1261,7 +1352,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
 
 const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onSelectProp }) => {
   const ranked = useMemo(() =>
-    propiedades.filter(p => p.estado!=='Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos))
+    propiedades.filter(p => p.estado!=='Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos))
       .map(p => ({ ...p, _puntaje:calcularPuntaje(p.puntajes,criterios), _analisis:calcularAnalisis(p,presupuesto,config) }))
       .sort((a,b) => b._puntaje - a._puntaje),
     [propiedades, criterios, presupuesto, config]
@@ -1351,7 +1442,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
 // ============================================================
 
 const DescartadasView = ({ propiedades, isAdmin, onRecuperar, onSelectProp }) => {
-  const desc = propiedades.filter(p => p.estado==='Descartada' || !cumpleExcluyentes(p, config?.excluyentesActivos));
+  const desc = propiedades.filter(p => p.estado==='Descartada' || !cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos));
   return (
     <div style={{ maxWidth:880, margin:'0 auto', padding:'30px 24px 64px' }}>
       <Hero eyebrow="Filtradas o marcadas" titulo="Descartadas" subtitulo='Propiedades con estado "Descartada" o que no cumplen los excluyentes' />
@@ -1601,6 +1692,29 @@ const ConfiguracionView = ({ config, setConfig, criterios }) => {
             );
           })}
         </div>
+
+        {/* Selector ambientes mínimos */}
+        <div style={{ marginTop:18, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Ambientes mínimos</div>
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {[{v:0,label:'Sin restricción'},{v:1,label:'1+'},{v:2,label:'2+'},{v:3,label:'3+'},{v:4,label:'4+'},{v:5,label:'5+'}].map(op => {
+              const activo = (config?.ambientesMinimos || 0) === op.v;
+              return (
+                <button key={op.v} onClick={() => updCfg('ambientesMinimos', op.v)}
+                  style={{ padding:'5px 14px', borderRadius:20, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:FONT, transition:'all 150ms',
+                    border:`1px solid ${activo ? c.accent : c.borderStrong}`,
+                    background: activo ? c.accentSoft : c.surface,
+                    color: activo ? c.accent : c.textMuted,
+                  }}>
+                  {op.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize:11, color:c.textSubtle, marginTop:8 }}>
+            Las propiedades con menos ambientes quedan descartadas automáticamente.
+          </div>
+        </div>
       </Card>
 
       {/* BARRIOS DESEADOS */}
@@ -1713,7 +1827,7 @@ export default function App() {
   const [propiedades, setPropiedades] = useState([]);
   const [criterios, setCriterios] = useState(CRITERIOS_DEFAULT);
   const [presupuesto, setPresupuesto] = useState({ ventaMin:0, ventaMax:0, ahorros:0, aportes:0, objetivo:0 });
-  const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','ambientes3','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'] });
+  const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 });
   const [usuarios, setUsuarios] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false });
@@ -1785,6 +1899,12 @@ export default function App() {
             cfg.excluyentesActivos = EXCLUYENTES_DEFAULT;
             if (isAdmin) await updateDoc(doc(db, 'config', 'main'), { 'configuracion.excluyentesActivos': EXCLUYENTES_DEFAULT });
           }
+          // Migrar: sacar ambientes3 si estaba en excluyentesActivos
+          if (cfg.excluyentesActivos.includes('ambientes3')) {
+            cfg.excluyentesActivos = cfg.excluyentesActivos.filter(id => id !== 'ambientes3');
+            if (isAdmin) await updateDoc(doc(db, 'config', 'main'), { 'configuracion.excluyentesActivos': cfg.excluyentesActivos });
+          }
+          if (cfg.ambientesMinimos == null) cfg.ambientesMinimos = 0;
           setConfig(cfg);
         }
       } else {
@@ -1792,7 +1912,7 @@ export default function App() {
           await setDoc(doc(db, 'config', 'main'), {
             criterios: CRITERIOS_DEFAULT,
             presupuesto: { ventaMin:167000, ventaMax:185000, ahorros:45000, aportes:70000, objetivo:250000 },
-            configuracion: { comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','ambientes3','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'] },
+            configuracion: { comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 },
           });
         }
       }
