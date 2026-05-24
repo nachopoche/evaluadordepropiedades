@@ -1284,7 +1284,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
               <div style={{ fontSize:13, color:c.textMuted, padding:'8px 0' }}>No hay excluyentes configurados. Definílos en Configuración.</div>
             ) : (
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                {excluyentesActivos.map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
+                {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
                 {cocheraActiva && (
                   <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
                     <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
