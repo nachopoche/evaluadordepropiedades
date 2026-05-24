@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen } from 'lucide-react';
 import { auth, googleProvider, db } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -132,6 +132,83 @@ const calcularAnalisis = (prop, pres, config) => {
 
 const colorAnalisis = e => e==='verde'?{fg:c.green,bg:c.greenSoft,label:'Sobra'} : e==='amber'?{fg:c.amber,bg:c.amberSoft,label:'Justo'} : e==='rojo'?{fg:c.red,bg:c.redSoft,label:'Falta'} : {fg:c.textMuted,bg:'#F0EFEB',label:'—'};
 
+
+// ============================================================
+// ONBOARDING — SLIDES Y GUÍA
+// ============================================================
+
+const ONBOARDING_SLIDES = [
+  {
+    emoji: '🏠',
+    titulo: '¿Qué es Valora?',
+    cuerpo: 'Es tu espacio para evaluar y comparar propiedades mientras buscás casa. Cargás las que te interesan, las puntuás según lo que más te importa, y Valora te dice cuál gana.',
+    hint: 'Empezá cargando tu primera propiedad con el botón "Nueva propiedad".',
+  },
+  {
+    emoji: '⚖️',
+    titulo: 'Pesos vs. Excluyentes',
+    cuerpo: 'Son dos cosas distintas:\n\n• Pesos: qué tan importante es cada criterio (del 1 al 5). Una propiedad puede tener cochera o no, y eso suma o resta al puntaje.\n\n• Excluyentes: es sí o no. Si una propiedad no cumple un excluyente activo, queda descartada automáticamente — no importa qué puntaje tenga.',
+    hint: 'Ejemplo: si tenés "Mínimo 3 ambientes" como excluyente, un monoambiente ni aparece en el ranking.',
+  },
+  {
+    emoji: '💰',
+    titulo: 'Análisis de compra',
+    cuerpo: 'Cargás tu presupuesto una sola vez (venta + ahorros + aportes) y Valora calcula automáticamente si cada propiedad entra en tu rango, considerando comisión y gastos.\n\nEsto es privado — solo lo ven los admins.',
+    hint: 'Los parámetros (comisión, gastos, otros) se configuran en la sección Configuración.',
+  },
+  {
+    emoji: '❓',
+    titulo: '¿Necesitás ayuda?',
+    cuerpo: 'Encontrás la guía completa de Valora en cualquier momento tocando el ícono (?) en la barra superior derecha.',
+    hint: 'Listo para arrancar. ¡Cargá tu primera propiedad!',
+  },
+];
+
+const GUIA_SECCIONES = [
+  {
+    id: 'propiedades',
+    titulo: 'Propiedades',
+    emoji: '🏠',
+    contenido: 'Es la vista principal. Cada propiedad tiene una card con su puntaje, precio y análisis financiero. Podés filtrar por zona, estado y favoritas.\n\nHacé clic en una propiedad para ver y editar todos sus datos: identificación, datos físicos, financieros, comodidades, puntajes y más.',
+  },
+  {
+    id: 'ranking',
+    titulo: 'Ranking',
+    emoji: '🏆',
+    contenido: 'Las propiedades se ordenan automáticamente de mayor a menor puntaje. Solo aparecen las que cumplen todos los excluyentes activos y no están descartadas.\n\nEl top 3 se destaca en cards grandes. El resto aparece en lista.',
+  },
+  {
+    id: 'pesos',
+    titulo: 'Pesos',
+    emoji: '⚖️',
+    contenido: 'Cada criterio tiene un peso del 1 al 5. Cuanto más alto, más influye en el puntaje final.\n\nEl puntaje de una propiedad es: Σ(puntaje × peso) / Σ(10 × peso) × 100.\n\nEjemplo: si "Espacio exterior" tiene peso 5 y le ponés 8/10, eso pesa mucho más que "Ruido percibido" con peso 2.',
+  },
+  {
+    id: 'excluyentes',
+    titulo: 'Excluyentes',
+    emoji: '🚫',
+    contenido: 'Son filtros duros. Si una propiedad no cumple TODOS los excluyentes activos, queda descartada automáticamente — no aparece en el ranking.\n\nDistinto de los pesos: acá no hay matices. Es sí o no.\n\nConfigurás cuáles excluyentes están activos en la sección Configuración.',
+  },
+  {
+    id: 'presupuesto',
+    titulo: 'Presupuesto',
+    emoji: '💰',
+    contenido: 'Cargás una sola vez tus fuentes de fondos: venta de tu propiedad actual (rango mínimo y máximo), ahorros propios y aportes adicionales.\n\nValora suma todo y lo compara contra el costo de cada propiedad (precio + comisión + gastos). El resultado aparece en verde, ámbar o rojo en cada propiedad.\n\nEsto es privado — solo lo ven los admins.',
+  },
+  {
+    id: 'configuracion',
+    titulo: 'Configuración',
+    emoji: '⚙️',
+    contenido: 'Acá personalizás Valora para tu búsqueda:\n\n• Parámetros de compra: comisión, gastos de escritura y otros (reformas, mudanza). Afectan el análisis de todas las propiedades.\n\n• Barrios deseados: los que seleccionás influyen en el criterio "Zona deseada".\n\n• Excluyentes: elegís cuáles están activos para tu búsqueda.\n\n• Lugares de referencia: guardás direcciones (trabajo, colegio) para calcular distancias con Google Maps (próximamente).',
+  },
+  {
+    id: 'descartadas',
+    titulo: 'Descartadas',
+    emoji: '🗑️',
+    contenido: 'Las propiedades que marcaste como "Descartada" o que no cumplen tus excluyentes activos aparecen acá.\n\nDesde esta vista podés recuperarlas si cambiás de opinión (solo admins).',
+  },
+];
+
 // ============================================================
 // LOGO SVG VALORA
 // ============================================================
@@ -236,6 +313,118 @@ const Field = ({ label, locked, children, hint }) => (
   </div>
 );
 
+
+// ============================================================
+// MODAL ONBOARDING (primera vez)
+// ============================================================
+
+const OnboardingModal = ({ onClose }) => {
+  const [slide, setSlide] = React.useState(0);
+  const total = ONBOARDING_SLIDES.length;
+  const s = ONBOARDING_SLIDES[slide];
+  const esUltimo = slide === total - 1;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.6)', backdropFilter:'blur(6px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ background:c.surface, borderRadius:20, padding:36, maxWidth:480, width:'100%', boxShadow:'0 24px 64px rgba(30,45,74,0.25)', fontFamily:FONT }}>
+        {/* Progress dots */}
+        <div style={{ display:'flex', gap:6, justifyContent:'center', marginBottom:28 }}>
+          {ONBOARDING_SLIDES.map((_,i) => (
+            <div key={i} style={{ width: i===slide?24:8, height:8, borderRadius:4, background:i===slide?c.accent:c.border, transition:'all 250ms' }} />
+          ))}
+        </div>
+
+        {/* Slide content */}
+        <div style={{ textAlign:'center', marginBottom:28 }}>
+          <div style={{ fontSize:48, marginBottom:16, lineHeight:1 }}>{s.emoji}</div>
+          <h2 style={{ margin:'0 0 12px', fontSize:22, fontWeight:700, letterSpacing:'-0.01em', color:c.text }}>{s.titulo}</h2>
+          <p style={{ margin:'0 0 16px', fontSize:14, color:c.textMuted, lineHeight:1.7, whiteSpace:'pre-line' }}>{s.cuerpo}</p>
+          {s.hint && (
+            <div style={{ padding:'10px 16px', background:c.accentSoft, borderRadius:10, fontSize:13, color:c.accent, fontWeight:500 }}>
+              {s.hint}
+            </div>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display:'flex', gap:10, justifyContent:'center' }}>
+          {slide > 0 && (
+            <Button variant="ghost" onClick={() => setSlide(s => s-1)}>Anterior</Button>
+          )}
+          {!esUltimo ? (
+            <Button variant="primary" onClick={() => setSlide(s => s+1)} style={{ flex:1 }}>
+              Siguiente →
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onClose} style={{ flex:1 }}>
+              ¡Arrancar! 🚀
+            </Button>
+          )}
+        </div>
+
+        {/* Skip */}
+        {!esUltimo && (
+          <div style={{ textAlign:'center', marginTop:14 }}>
+            <button onClick={onClose} style={{ border:'none', background:'transparent', fontSize:12, color:c.textSubtle, cursor:'pointer', fontFamily:FONT }}>
+              Saltar intro
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// MODAL GUÍA COMPLETA (ícono ?)
+// ============================================================
+
+const GuiaModal = ({ onClose }) => {
+  const [secActiva, setSecActiva] = React.useState('propiedades');
+  const sec = GUIA_SECCIONES.find(s => s.id === secActiva);
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'40px 20px', overflow:'auto' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:c.surface, borderRadius:16, maxWidth:680, width:'100%', boxShadow:'0 20px 60px rgba(30,45,74,0.25)', fontFamily:FONT, overflow:'hidden' }}>
+        {/* Header */}
+        <div style={{ padding:'20px 24px', borderBottom:`1px solid ${c.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:20, fontWeight:700, letterSpacing:'-0.01em' }}>Cómo funciona Valora</h2>
+            <p style={{ margin:'4px 0 0', fontSize:13, color:c.textMuted }}>Guía de uso completa</p>
+          </div>
+          <button onClick={onClose} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:4 }}><X size={20} /></button>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'200px 1fr' }}>
+          {/* Sidebar */}
+          <div style={{ borderRight:`1px solid ${c.border}`, padding:'12px 8px' }}>
+            {GUIA_SECCIONES.map(s => (
+              <button key={s.id} onClick={() => setSecActiva(s.id)}
+                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', width:'100%', border:'none', borderRadius:10,
+                  background: secActiva===s.id ? c.accentSoft : 'transparent',
+                  color: secActiva===s.id ? c.accent : c.text,
+                  fontWeight: secActiva===s.id ? 600 : 400,
+                  fontSize:13, fontFamily:FONT, cursor:'pointer', textAlign:'left', transition:'all 150ms' }}
+                onMouseEnter={e=>{ if(secActiva!==s.id) e.currentTarget.style.background=c.surfaceAlt; }}
+                onMouseLeave={e=>{ if(secActiva!==s.id) e.currentTarget.style.background='transparent'; }}>
+                <span style={{ fontSize:16 }}>{s.emoji}</span>
+                {s.titulo}
+              </button>
+            ))}
+          </div>
+
+          {/* Contenido */}
+          <div style={{ padding:'28px 28px' }}>
+            <div style={{ fontSize:32, marginBottom:12 }}>{sec.emoji}</div>
+            <h3 style={{ margin:'0 0 14px', fontSize:18, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
+            <p style={{ margin:0, fontSize:14, color:c.textMuted, lineHeight:1.8, whiteSpace:'pre-line' }}>{sec.contenido}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // PANTALLA DE LOGIN
 // ============================================================
@@ -295,7 +484,7 @@ const WaitingScreen = ({ user, onLogout }) => (
 // NAVBAR
 // ============================================================
 
-const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios }) => {
+const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios, onAbrirGuia }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const items = [
@@ -339,6 +528,17 @@ const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, 
             );
           })}
         </nav>
+
+        {/* Ícono de ayuda — solo admins */}
+        {isAdmin && (
+          <button onClick={onAbrirGuia}
+            title="Cómo funciona Valora"
+            style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:6, borderRadius:8, display:'flex', alignItems:'center', transition:'color 150ms' }}
+            onMouseEnter={e=>e.currentTarget.style.color=c.text}
+            onMouseLeave={e=>e.currentTarget.style.color=c.textMuted}>
+            <HelpCircle size={20} />
+          </button>
+        )}
 
         <div style={{ position:'relative' }}>
           <button onClick={()=>setShowUserMenu(s=>!s)}
@@ -622,10 +822,14 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
             <Home size={22} style={{ color:c.textMuted }} />
           </div>
           <h3 style={{ margin:'0 0 8px', fontSize:16, fontWeight:600 }}>
-            {propiedades.length===0 ? 'Sin propiedades cargadas todavía' : 'Sin resultados con esos filtros'}
+            {propiedades.length===0 ? 'Todavía no cargaste ninguna propiedad' : 'Sin resultados con esos filtros'}
           </h3>
-          <p style={{ margin:'0 0 16px', color:c.textMuted, fontSize:14 }}>
-            {propiedades.length===0 ? (isAdmin ? 'Hacé click en "Nueva propiedad" para arrancar.' : 'Los admins todavía no cargaron propiedades.') : 'Probá quitar algún filtro.'}
+          <p style={{ margin:'0 0 16px', color:c.textMuted, fontSize:14, lineHeight:1.6 }}>
+            {propiedades.length===0
+              ? (isAdmin
+                  ? 'Cada vez que encontrés una propiedad que te interese en Zonaprop o Argenprop, la cargás acá y la evaluás. Valora la ordena automáticamente por puntaje.'
+                  : 'Los admins todavía no cargaron propiedades.')
+              : 'Probá quitar algún filtro.'}
           </p>
           {propiedades.length===0 && isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={15} /> Nueva propiedad</Button>}
         </Card>
@@ -1071,8 +1275,8 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
       {ranked.length === 0 ? (
         <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
           <Award size={28} style={{ color:c.textMuted, marginBottom:10 }} />
-          <h3 style={{ margin:'0 0 7px', fontSize:16, fontWeight:600 }}>No hay propiedades en el ranking</h3>
-          <p style={{ margin:0, fontSize:14, color:c.textMuted }}>Agregá puntajes a tus propiedades para verlas aquí.</p>
+          <h3 style={{ margin:'0 0 7px', fontSize:16, fontWeight:600 }}>No hay propiedades en el ranking todavía</h3>
+          <p style={{ margin:0, fontSize:14, color:c.textMuted, lineHeight:1.6 }}>Las propiedades se ordenan automáticamente según su puntaje ponderado. Para aparecer acá tienen que tener al menos un puntaje cargado y cumplir todos los excluyentes activos.</p>
         </Card>
       ) : (
         <>
@@ -1197,9 +1401,8 @@ const PesosView = ({ criterios, setCriterios, isAdmin }) => {
     <div style={{ maxWidth:740, margin:'0 auto', padding:'30px 24px 64px' }}>
       <Hero eyebrow="Configuración" titulo="Pesos de criterios" subtitulo={isAdmin ? "Ajustá qué tan importante es cada criterio · afecta el puntaje en tiempo real" : "Pesos definidos por los admins"} />
 
-      <div style={{ marginBottom:16, padding:14, background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:12, fontSize:12, color:c.textMuted, lineHeight:1.7 }}>
-        <strong style={{ color:c.text }}>Criterios automáticos</strong> (zona deseada, cochera, distancias): se calculan solos según los datos de cada propiedad y tu configuración. Solo podés ajustar su <em>peso</em> relativo.<br/>
-        <strong style={{ color:c.text }}>Criterios manuales</strong>: los puntuás vos del 0 al 10 en cada propiedad.
+      <div style={{ marginBottom:16, padding:14, background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:12, fontSize:13, color:c.textMuted, lineHeight:1.7 }}>
+        El peso (1 a 5) indica cuánto influye cada criterio en el puntaje final. <strong style={{ color:c.text }}>No es lo mismo que los excluyentes</strong>: los pesos suman o restan al número, los excluyentes son sí o no — si no se cumple, la propiedad queda descartada sin importar el puntaje.
       </div>
 
       <Card style={{ padding:24 }}>
@@ -1515,6 +1718,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false });
   const [showGestion, setShowGestion] = useState(false);
+  const [showGuia, setShowGuia] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
 
   const isAdmin = userDoc?.rol === 'admin' && userDoc?.estado === 'aprobado';
@@ -1551,7 +1756,7 @@ export default function App() {
 
   // 2. Data listeners (solo si aprobado)
   useEffect(() => {
-    if (!isApproved) return;
+    if (!isApproved || !firebaseUser) return;
     setDataLoading(true);
     const unsubs = [];
 
@@ -1598,10 +1803,25 @@ export default function App() {
       unsubs.push(onSnapshot(collection(db, 'usuarios'), (snap) => {
         setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       }));
+
+      // Chequear si el admin ya vio el onboarding
+      getDoc(doc(db, 'usuarios', firebaseUser.uid)).then(snap => {
+        if (snap.exists() && !snap.data().onboardingVisto) {
+          setShowOnboarding(true);
+        }
+      });
     }
 
     return () => unsubs.forEach(u => u());
   }, [isApproved, isAdmin]);
+
+  // Onboarding
+  const handleCerrarOnboarding = async () => {
+    setShowOnboarding(false);
+    if (firebaseUser) {
+      await updateDoc(doc(db, 'usuarios', firebaseUser.uid), { onboardingVisto: true });
+    }
+  };
 
   // Auth handlers
   const handleLogin = async () => {
@@ -1703,6 +1923,7 @@ export default function App() {
         pendientes={pendientes}
         onLogout={handleLogout}
         onAbrirGestionUsuarios={() => setShowGestion(true)}
+        onAbrirGuia={() => setShowGuia(true)}
       />
 
       {showGestion && (
@@ -1716,6 +1937,9 @@ export default function App() {
           onClose={() => setShowGestion(false)}
         />
       )}
+
+      {showOnboarding && <OnboardingModal onClose={handleCerrarOnboarding} />}
+      {showGuia && <GuiaModal onClose={() => setShowGuia(false)} />}
 
       {selectedId && propActual ? (
         <DetalleView
