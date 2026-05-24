@@ -123,17 +123,19 @@ const colorPuntaje = p => p>=80 ? c.green : p>=60 ? c.amber : c.red;
 const semaforoBg = p => p>=80 ? '#C0DD97' : p>=60 ? '#FAC775' : '#F7C1C1';
 const cumpleExcluyentes = prop => EXCLUYENTES.every(e => prop.excluyentes?.[e.id]===true);
 
-const calcularAnalisis = (prop, pres, comisionPct) => {
-  const com = comisionPct ?? 4;
-  const gPct = prop.gastosPct ?? 2;
+const calcularAnalisis = (prop, pres, config) => {
+  const com = config?.comisionPct ?? 4;
+  const gas = config?.gastosPct ?? 2;
+  const otros = config?.otrosPct ?? 0;
+  const totalPct = com + gas + otros;
   const vP = ((pres?.ventaMin||0)+(pres?.ventaMax||0))/2;
   const total = vP + (pres?.ahorros||0) + (pres?.aportes||0);
   const precio = prop.precioPedido||0;
-  const costo = precio * (1 + (com + gPct)/100);
+  const costo = precio * (1 + totalPct/100);
   const res = total - costo;
   const mRel = precio>0 ? res/precio : 0;
   const estado = !precio ? 'sin-datos' : res>=0&&mRel>=0.05 ? 'verde' : res>=0 ? 'amber' : 'rojo';
-  return { resultado:res, costoTotal:costo, totalDisponible:total, ventaProm:vP, precio, gastosPct:gPct, comisionPct:com, estado, margenRel:mRel };
+  return { resultado:res, costoTotal:costo, totalDisponible:total, ventaProm:vP, precio, comisionPct:com, gastosPct:gas, otrosPct:otros, totalPct, estado, margenRel:mRel };
 };
 
 const colorAnalisis = e => e==='verde'?{fg:c.green,bg:c.greenSoft,label:'Sobra'} : e==='amber'?{fg:c.amber,bg:c.amberSoft,label:'Justo'} : e==='rojo'?{fg:c.red,bg:c.redSoft,label:'Falta'} : {fg:c.textMuted,bg:'#F0EFEB',label:'—'};
@@ -309,7 +311,10 @@ const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, 
     { id:'ranking', label:'Ranking', icon:Award },
     { id:'descartadas', label:'Descartadas', icon:X },
     { id:'pesos', label:'Pesos', icon:SlidersHorizontal },
-    ...(isAdmin ? [{ id:'presupuesto', label:'Presupuesto', icon:Wallet, locked:true }] : []),
+    ...(isAdmin ? [
+      { id:'presupuesto', label:'Presupuesto', icon:Wallet, locked:true },
+      { id:'configuracion', label:'Configuración', icon:Settings, locked:true },
+    ] : []),
   ];
 
   const inicial = (currentUser.displayName || currentUser.email)[0].toUpperCase();
@@ -472,7 +477,7 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) => {
   const puntaje = calcularPuntaje(prop.puntajes, criterios, prop, config);
   const cumple = cumpleExcluyentes(prop);
-  const analisis = calcularAnalisis(prop, presupuesto, config?.comisionPct);
+  const analisis = calcularAnalisis(prop, presupuesto, config);
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
   const hColor = isAdmin && analisis.estado !== 'sin-datos'
@@ -678,7 +683,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
   };
 
   const puntaje = calcularPuntaje(prop.puntajes, criterios, prop, config);
-  const analisis = calcularAnalisis(prop, presupuesto, config?.comisionPct);
+  const analisis = calcularAnalisis(prop, presupuesto, config);
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
   const usdM2 = m2pond>0 && prop.precioPedido ? prop.precioPedido/m2pond : null;
@@ -812,10 +817,10 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
                 <span style={{ fontSize:12, fontWeight:600, color:c.accent }}>Análisis de compra</span>
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:11, marginBottom:14 }}>
-                <Field label="Comisión inmobiliaria" hint={`Global: ${analisis.comisionPct}% (editable en Presupuesto)`}>
-                  <div style={{ ...iS, background:c.surfaceAlt, color:c.textMuted }}>{analisis.comisionPct}%</div>
-                </Field>
-                <Field label="Gastos (%)" locked hint="Sellos, escribano, mudanza..."><TextInput type="number" defaultValue={analisis.gastosPct} onCommit={v=>update('gastosPct', v===''?2:v)} /></Field>
+                <div style={{ padding:'10px 14px', background:c.surfaceAlt, borderRadius:10, fontSize:13, color:c.textMuted, lineHeight:1.8 }}>
+                  Comisión {analisis.comisionPct}% · Gastos {analisis.gastosPct}%{analisis.otrosPct>0?` · Otros ${analisis.otrosPct}%`:''} · <strong>Total {analisis.totalPct}%</strong>
+                  <div style={{ fontSize:11, marginTop:2 }}>Editables en Configuración</div>
+                </div>
               </div>
               {analisis.estado !== 'sin-datos' && (
                 <>
@@ -824,6 +829,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
                       ['Precio pedido', fmtUSD(analisis.precio)],
                       [`+ Comisión (${analisis.comisionPct}%)`, fmtUSD(analisis.precio*analisis.comisionPct/100)],
                       [`+ Gastos (${analisis.gastosPct}%)`, fmtUSD(analisis.precio*analisis.gastosPct/100)],
+                      ...(analisis.otrosPct>0 ? [[`+ Otros (${analisis.otrosPct}%)`, fmtUSD(analisis.precio*analisis.otrosPct/100)]] : []),
                     ].map(([l,v]) => (
                       <div key={l} style={{ display:'flex', justifyContent:'space-between' }}><span style={{ color:c.textMuted }}>{l}</span><span style={{ fontWeight:500 }}>{v}</span></div>
                     ))}
@@ -950,7 +956,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
 const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onSelectProp }) => {
   const ranked = useMemo(() =>
     propiedades.filter(p => p.estado!=='Descartada' && cumpleExcluyentes(p))
-      .map(p => ({ ...p, _puntaje:calcularPuntaje(p.puntajes,criterios,p,config), _analisis:calcularAnalisis(p,presupuesto,config?.comisionPct) }))
+      .map(p => ({ ...p, _puntaje:calcularPuntaje(p.puntajes,criterios,p,config), _analisis:calcularAnalisis(p,presupuesto,config) }))
       .sort((a,b) => b._puntaje - a._puntaje),
     [propiedades, criterios, presupuesto, config]
   );
@@ -1132,7 +1138,7 @@ const PesosView = ({ criterios, setCriterios, isAdmin }) => {
 // PRESUPUESTO
 // ============================================================
 
-const PresupuestoView = ({ presupuesto, setPresupuesto, config, setConfig }) => {
+const PresupuestoView = ({ presupuesto, setPresupuesto }) => {
   const upd = (k, v) => setPresupuesto(p => ({ ...p, [k]: v }));
   const vProm = ((presupuesto.ventaMin||0) + (presupuesto.ventaMax||0)) / 2;
   const tMin = (presupuesto.ventaMin||0) + (presupuesto.ahorros||0) + (presupuesto.aportes||0);
@@ -1192,17 +1198,144 @@ const PresupuestoView = ({ presupuesto, setPresupuesto, config, setConfig }) => 
         </div>
       </Card>
 
-      {/* Comisión editable — acá hasta que exista sección Configuración */}
-      <Card style={{ padding:24 }}>
+      <div style={{ padding:'12px 16px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:12, fontSize:12, color:c.textMuted }}>
+        Los parámetros de compra (comisión, gastos, otros) se editan en <strong style={{ color:c.text }}>Configuración</strong>.
+      </div>
+    </div>
+  );
+};
+
+
+// ============================================================
+// CONFIGURACION VIEW
+// ============================================================
+
+const ConfiguracionView = ({ config, setConfig, criterios }) => {
+  const updCfg = (k, v) => setConfig(cfg => ({ ...cfg, [k]: v }));
+
+  const toggleBarrio = (barrio) => {
+    const actual = config?.barriosDeseados || [];
+    const nuevo = actual.includes(barrio)
+      ? actual.filter(b => b !== barrio)
+      : [...actual, barrio];
+    updCfg('barriosDeseados', nuevo);
+  };
+
+  const barriosDeseados = config?.barriosDeseados || [];
+  const lugaresRef = config?.lugaresReferencia || [];
+
+  const agregarLugar = () => {
+    if (lugaresRef.length >= 5) return;
+    updCfg('lugaresReferencia', [...lugaresRef, { nombre: '', direccion: '' }]);
+  };
+
+  const actualizarLugar = (i, campo, valor) => {
+    const nuevos = lugaresRef.map((l, idx) => idx === i ? { ...l, [campo]: valor } : l);
+    updCfg('lugaresReferencia', nuevos);
+  };
+
+  const eliminarLugar = (i) => {
+    updCfg('lugaresReferencia', lugaresRef.filter((_, idx) => idx !== i));
+  };
+
+  return (
+    <div style={{ maxWidth:740, margin:'0 auto', padding:'30px 24px 64px' }}>
+      <Hero
+        eyebrow={<span style={{ display:'inline-flex', alignItems:'center', gap:5 }}><Lock size={11} /> Solo admins</span>}
+        titulo="Configuración"
+        subtitulo="Personalizá Valora para tu búsqueda"
+      />
+
+      {/* PARÁMETROS DE COMPRA */}
+      <Card style={{ padding:24, marginBottom:12 }}>
         <h3 style={{ margin:'0 0 6px', fontSize:15, fontWeight:600 }}>Parámetros de compra</h3>
         <p style={{ margin:'0 0 16px', fontSize:12, color:c.textMuted }}>Afectan el análisis de compra de todas las propiedades</p>
-        <Field label="Comisión inmobiliaria (%)" hint="Valor estándar en Argentina: 4%">
-          <TextInput
-            type="number"
-            defaultValue={config?.comisionPct ?? 4}
-            onCommit={v => setConfig(cfg => ({ ...cfg, comisionPct: v===''?4:parseFloat(v) }))}
-          />
-        </Field>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:12 }}>
+          <Field label="Comisión inmobiliaria (%)" hint="Estándar Argentina: 4%">
+            <TextInput type="number" defaultValue={config?.comisionPct ?? 4}
+              onCommit={v => updCfg('comisionPct', v===''?4:parseFloat(v))} />
+          </Field>
+          <Field label="Gastos de escritura (%)" hint="Sellos, escribano, etc.">
+            <TextInput type="number" defaultValue={config?.gastosPct ?? 2}
+              onCommit={v => updCfg('gastosPct', v===''?2:parseFloat(v))} />
+          </Field>
+          <Field label="Otros (%)" hint="Reformas, mudanza, lo que quieras sumar">
+            <TextInput type="number" defaultValue={config?.otrosPct ?? 0}
+              onCommit={v => updCfg('otrosPct', v===''?0:parseFloat(v))} />
+          </Field>
+        </div>
+        <div style={{ marginTop:12, padding:'10px 14px', background:c.surfaceAlt, borderRadius:10, fontSize:13, color:c.textMuted }}>
+          Total de costos sobre el precio: <strong style={{ color:c.text }}>{((config?.comisionPct??4)+(config?.gastosPct??2)+(config?.otrosPct??0)).toFixed(1)}%</strong>
+        </div>
+      </Card>
+
+      {/* BARRIOS DESEADOS */}
+      <Card style={{ padding:24, marginBottom:12 }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:15, fontWeight:600 }}>Barrios deseados</h3>
+        <p style={{ margin:'0 0 16px', fontSize:12, color:c.textMuted }}>
+          Las propiedades en estos barrios obtienen 10/10 en el criterio automático "Zona deseada".
+          {barriosDeseados.length > 0 && <> <strong style={{ color:c.text }}>{barriosDeseados.length} seleccionados.</strong></>}
+        </p>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+          {ZONAS.filter(z => z !== 'Otra').map(barrio => {
+            const activo = barriosDeseados.includes(barrio);
+            return (
+              <button key={barrio} onClick={() => toggleBarrio(barrio)}
+                style={{ padding:'5px 12px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer', fontFamily:FONT, transition:'all 150ms',
+                  border:`1px solid ${activo ? c.accent : c.borderStrong}`,
+                  background: activo ? c.accentSoft : c.surface,
+                  color: activo ? c.accent : c.textMuted,
+                }}>
+                {barrio}
+              </button>
+            );
+          })}
+        </div>
+        {barriosDeseados.length === 0 && (
+          <div style={{ marginTop:12, fontSize:12, color:c.amber, display:'flex', alignItems:'center', gap:5 }}>
+            <AlertCircle size={13} /> Sin barrios seleccionados — el criterio "Zona deseada" no aplica todavía.
+          </div>
+        )}
+      </Card>
+
+      {/* LUGARES DE REFERENCIA */}
+      <Card style={{ padding:24 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+          <div>
+            <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:600 }}>Lugares de referencia</h3>
+            <p style={{ margin:'0 0 16px', fontSize:12, color:c.textMuted }}>
+              Se van a usar para calcular distancias automáticamente con Google Maps (próxima versión).
+            </p>
+          </div>
+          {lugaresRef.length < 5 && (
+            <Button variant="secondary" size="sm" onClick={agregarLugar}><Plus size={13} /> Agregar</Button>
+          )}
+        </div>
+
+        {lugaresRef.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'24px 0', color:c.textMuted, fontSize:13 }}>
+            <MapPin size={22} style={{ marginBottom:8, opacity:0.4 }} /><br/>
+            Agregá lugares para calcular distancias (trabajo, colegio, etc.)
+          </div>
+        ) : (
+          lugaresRef.map((lugar, i) => (
+            <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 2fr auto', gap:10, alignItems:'flex-end', marginBottom:12 }}>
+              <Field label={i === 0 ? 'Nombre' : undefined}>
+                <TextInput defaultValue={lugar.nombre} onCommit={v => actualizarLugar(i, 'nombre', v)} placeholder="Ej: Trabajo, Jardín..." />
+              </Field>
+              <Field label={i === 0 ? 'Dirección' : undefined}>
+                <TextInput defaultValue={lugar.direccion} onCommit={v => actualizarLugar(i, 'direccion', v)} placeholder="Av. Corrientes 1234, CABA" />
+              </Field>
+              <button onClick={() => eliminarLugar(i)}
+                style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:'10px 6px', marginBottom:14 }}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))
+        )}
+        {lugaresRef.length >= 5 && (
+          <div style={{ fontSize:12, color:c.textMuted, marginTop:8 }}>Máximo 5 lugares.</div>
+        )}
       </Card>
     </div>
   );
@@ -1246,7 +1379,7 @@ export default function App() {
   const [propiedades, setPropiedades] = useState([]);
   const [criterios, setCriterios] = useState(CRITERIOS_DEFAULT);
   const [presupuesto, setPresupuesto] = useState({ ventaMin:0, ventaMax:0, ahorros:0, aportes:0, objetivo:0 });
-  const [config, setConfig] = useState({ comisionPct:4, barriosDeseados:[], lugaresReferencia:[] });
+  const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[] });
   const [usuarios, setUsuarios] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false });
@@ -1316,7 +1449,7 @@ export default function App() {
           await setDoc(doc(db, 'config', 'main'), {
             criterios: CRITERIOS_DEFAULT,
             presupuesto: { ventaMin:167000, ventaMax:185000, ahorros:45000, aportes:70000, objetivo:250000 },
-            configuracion: { comisionPct:4, barriosDeseados:[], lugaresReferencia:[] },
+            configuracion: { comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[] },
           });
         }
       }
@@ -1409,7 +1542,7 @@ export default function App() {
     await updateDoc(doc(db, 'config', 'main'), { configuracion: nuevo });
   }, [config]);
 
-  useEffect(() => { if (!isAdmin && view === 'presupuesto') setView('lista'); }, [isAdmin, view]);
+  useEffect(() => { if (!isAdmin && (view === 'presupuesto' || view === 'configuracion')) setView('lista'); }, [isAdmin, view]);
 
   // === RENDER ===
 
@@ -1463,9 +1596,13 @@ export default function App() {
           {view === 'ranking' && <RankingView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onSelectProp={setSelectedId} />}
           {view === 'descartadas' && <DescartadasView propiedades={propiedades} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
           {view === 'pesos' && <PesosView criterios={criterios} setCriterios={setCriteriosFirestore} isAdmin={isAdmin} />}
-          {view === 'presupuesto' && (isAdmin ? <PresupuestoView presupuesto={presupuesto} setPresupuesto={setPresupuestoFirestore} config={config} setConfig={setConfigFirestore} /> : <AccesoDenegadoView />)}
+          {view === 'presupuesto' && (isAdmin ? <PresupuestoView presupuesto={presupuesto} setPresupuesto={setPresupuestoFirestore} /> : <AccesoDenegadoView />)}
+          {view === 'configuracion' && (isAdmin ? <ConfiguracionView config={config} setConfig={setConfigFirestore} criterios={criterios} /> : <AccesoDenegadoView />)}
         </>
       )}
+      <div style={{ textAlign:'center', padding:'24px', borderTop:`1px solid ${c.border}`, marginTop:40 }}>
+        <span style={{ fontSize:12, color:c.textSubtle, fontStyle:'italic' }}>Buscás en Zonaprop, decidís en Valora.</span>
+      </div>
     </div>
   );
 }
