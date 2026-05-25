@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen } from 'lucide-react';
-import { auth, googleProvider, db } from './firebase';
+import { auth, googleProvider, db, storage } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // ============================================================
 // CONSTANTES
@@ -685,8 +686,11 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
 
   return (
     <Card hoverable onClick={onClick} style={{ opacity:(prop.estado==='Descartada'||!cumple)?0.55:1 }}>
-      <div style={{ height:140, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <ImageIcon size={30} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
+      <div style={{ height:140, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+        {prop.fotos?.[0]
+          ? <img src={prop.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
+          : <ImageIcon size={30} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
+        }
         <div style={{ position:'absolute', top:10, left:10, background:c.surface, padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:500, display:'flex', alignItems:'center', gap:5, boxShadow:shadow.sm }}>
           <span style={{ width:6, height:6, borderRadius:'50%', background:eColor }} />
           {prop.estado||'Sin estado'}
@@ -861,6 +865,20 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   );
 };
 
+// Helper thumbnail reutilizable en cards
+const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
+  const url = fotos?.[0];
+  return url ? (
+    <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden', flexShrink:0 }}>
+      <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+    </div>
+  ) : (
+    <div style={{ width:size, height:size, borderRadius:radius, background:semaforoBg(puntaje||0), display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+      <ImageIcon size={size*0.3} style={{ color:colorPuntaje(puntaje||0), opacity:0.4 }} />
+    </div>
+  );
+};
+
 // ============================================================
 // SECCION COLAPSABLE
 // ============================================================
@@ -973,6 +991,185 @@ const SemaforoDemanda = ({ prop, update }) => {
 };
 
 // ============================================================
+// FOTOS — upload, galería y lightbox
+// ============================================================
+
+const MAX_FOTOS = 10;
+const MAX_W = 1600;
+const QUALITY = 0.85;
+
+const comprimirImagen = (file) => new Promise((resolve, reject) => {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Compresión fallida')), 'image/jpeg', QUALITY);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')); };
+  img.src = url;
+});
+
+const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, onPrev, onNext]);
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.92)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <button onClick={(e)=>{e.stopPropagation();onPrev();}} style={{ position:'absolute', left:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
+        <ChevronDown size={22} style={{ transform:'rotate(90deg)' }} />
+      </button>
+      <img onClick={e=>e.stopPropagation()} src={fotos[index]} alt="" style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, objectFit:'contain', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+      <button onClick={(e)=>{e.stopPropagation();onNext();}} style={{ position:'absolute', right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
+        <ChevronDown size={22} style={{ transform:'rotate(-90deg)' }} />
+      </button>
+      <button onClick={onClose} style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:36, height:36, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
+        <X size={18} />
+      </button>
+      <div style={{ position:'absolute', bottom:18, left:'50%', transform:'translateX(-50%)', display:'flex', gap:7 }}>
+        {fotos.map((_,i) => (
+          <div key={i} style={{ width:i===index?20:8, height:8, borderRadius:4, background:i===index?'white':'rgba(255,255,255,0.4)', transition:'all 200ms' }} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
+  const fotos = prop.fotos || [];
+  const [subiendo, setSubiendo] = useState({});
+  const [errores, setErrores] = useState({});
+  const [lightboxIdx, setLightboxIdx] = useState(null);
+  const fileRef = React.useRef();
+
+  const abrirLightbox = (i) => setLightboxIdx(i);
+  const cerrarLightbox = () => setLightboxIdx(null);
+  const prevFoto = () => setLightboxIdx(i => (i - 1 + fotos.length) % fotos.length);
+  const nextFoto = () => setLightboxIdx(i => (i + 1) % fotos.length);
+
+  const subirFotos = async (files) => {
+    const disponibles = MAX_FOTOS - fotos.length;
+    const seleccionadas = Array.from(files).slice(0, disponibles);
+    if (seleccionadas.length === 0) return;
+    for (const file of seleccionadas) {
+      const tempId = `${Date.now()}-${Math.random()}`;
+      setSubiendo(p => ({ ...p, [tempId]: 0 }));
+      setErrores(p => { const n = {...p}; delete n[tempId]; return n; });
+      try {
+        const blob = await comprimirImagen(file);
+        const storageRef = ref(storage, `properties/${userId}/${propId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g,'_')}`);
+        const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
+        await new Promise((resolve, reject) => {
+          task.on('state_changed',
+            snap => setSubiendo(p => ({ ...p, [tempId]: Math.round(snap.bytesTransferred / snap.totalBytes * 100) })),
+            err => { setErrores(p => ({ ...p, [tempId]: 'Error al subir' })); reject(err); },
+            async () => {
+              const url = await getDownloadURL(task.snapshot.ref);
+              update('fotos', [...(prop.fotos || []), url]);
+              setSubiendo(p => { const n = {...p}; delete n[tempId]; return n; });
+              resolve();
+            }
+          );
+        });
+      } catch {
+        setErrores(p => ({ ...p, [tempId]: 'Error al subir, intentá de nuevo' }));
+        setSubiendo(p => { const n = {...p}; delete n[tempId]; return n; });
+      }
+    }
+  };
+
+  const eliminarFoto = async (i) => {
+    const url = fotos[i];
+    update('fotos', fotos.filter((_,idx) => idx !== i));
+    try { await deleteObject(ref(storage, url)); } catch { /* ignore */ }
+  };
+
+  const hacerPrincipal = (i) => {
+    if (i === 0) return;
+    update('fotos', [fotos[i], ...fotos.filter((_,idx) => idx !== i)]);
+  };
+
+  const haySubidas = Object.keys(subiendo).length > 0;
+  const hayErrores = Object.keys(errores).length > 0;
+  const puedeSubir = fotos.length < MAX_FOTOS && !haySubidas;
+
+  return (
+    <div>
+      {fotos.length > 0 && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:8, marginBottom:12 }}>
+          {fotos.map((url, i) => (
+            <div key={url} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt }}>
+              <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', cursor:'pointer' }} onClick={()=>abrirLightbox(i)} />
+              {i === 0 && (
+                <div style={{ position:'absolute', top:5, left:5, background:c.accent, color:'white', fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:5, pointerEvents:'none' }}>Principal</div>
+              )}
+              {isAdmin && (
+                <div className="foto-overlay" style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0)', display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:0, transition:'all 150ms' }}
+                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(0,0,0,0.48)';e.currentTarget.style.opacity='1';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='rgba(0,0,0,0)';e.currentTarget.style.opacity='0';}}>
+                  {i !== 0 && (
+                    <button onClick={(e)=>{e.stopPropagation();hacerPrincipal(i);}}
+                      style={{ background:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11, fontWeight:600, cursor:'pointer', color:c.text }}>
+                      Principal
+                    </button>
+                  )}
+                  <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
+                    style={{ background:c.red, border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {haySubidas && (
+        <div style={{ marginBottom:10 }}>
+          {Object.entries(subiendo).map(([id, pct]) => (
+            <div key={id} style={{ marginBottom:7 }}>
+              <div style={{ fontSize:12, color:c.textMuted, marginBottom:4 }}>Subiendo... {pct}%</div>
+              <div style={{ height:5, background:c.border, borderRadius:3, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${pct}%`, background:c.accent, borderRadius:3, transition:'width 200ms' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {hayErrores && Object.values(errores).map((err, i) => (
+        <div key={i} style={{ fontSize:12, color:c.red, padding:'6px 10px', background:c.redSoft, borderRadius:7, marginBottom:8 }}>⚠️ {err}</div>
+      ))}
+      {isAdmin && (
+        <div>
+          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display:'none' }}
+            onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <button onClick={()=>fileRef.current?.click()} disabled={!puedeSubir}
+            style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.surfaceAlt:'transparent', border:`1.5px dashed ${puedeSubir?c.border:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.text:c.textMuted, fontWeight:500 }}>
+            <Plus size={15} />
+            {fotos.length === 0 ? 'Agregar fotos' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS} fotos` : `Agregar fotos (${fotos.length}/${MAX_FOTOS})`}
+          </button>
+          {fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Hover para eliminar o hacer principal · Click para ampliar</div>}
+        </div>
+      )}
+      {lightboxIdx !== null && (
+        <Lightbox fotos={fotos} index={lightboxIdx} onClose={cerrarLightbox} onPrev={prevFoto} onNext={nextFoto} />
+      )}
+    </div>
+  );
+};
+
+// ============================================================
 // HISTORIAL DE PRECIO
 // ============================================================
 
@@ -1048,8 +1245,8 @@ const HistorialPrecio = ({ prop, update }) => {
 // DETALLE VIEW
 // ============================================================
 
-const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, onBack, onDelete }) => {
-  const [sec, setSec] = useState({ ident:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, proceso:false, negociacion:false, visita:false, notas:false });
+const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
+  const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, proceso:false, negociacion:false, visita:false, notas:false });
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
     const keys = path.split('.');
@@ -1089,9 +1286,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
 
       <Card style={{ marginBottom:14, padding:22 }}>
         <div style={{ display:'flex', gap:18, alignItems:'flex-start' }}>
-          <div style={{ width:96, height:96, borderRadius:14, background:heroColor, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <ImageIcon size={30} style={{ color:colorPuntaje(puntaje), opacity:0.45 }} />
-          </div>
+          <FotoThumb fotos={prop.fotos} size={96} radius={14} puntaje={puntaje} />
           <div style={{ flex:1, minWidth:0 }}>
             <TextInput defaultValue={prop.nombre} onCommit={v=>update('nombre',v)} placeholder="Nombre de la propiedad"
               style={{ fontSize:22, fontWeight:700, border:'none', padding:'0 0 5px', letterSpacing:'-0.01em' }} />
@@ -1149,7 +1344,11 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
         </div>
       </Section>
 
-      {/* COMODIDADES */}
+      {/* FOTOS */}
+      <Section icon={ImageIcon} title="Fotos" badge={prop.fotos?.length > 0 ? <Badge bg={c.surfaceAlt} color={c.textMuted}>{prop.fotos.length}/{MAX_FOTOS}</Badge> : null} open={sec.fotos} onToggle={()=>toggle('fotos')}>
+        <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
+      </Section>
+
       {/* COMODIDADES */}
       <Section icon={Star} title="Comodidades" open={sec.comodidades} onToggle={()=>toggle('comodidades')}>
         <div style={{ marginBottom:14 }}>
@@ -1498,6 +1697,11 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
                 <th style={{ background:c.surface, position:'sticky', left:0, top:0, zIndex:6, minWidth:160 }}></th>
                 {datos.map(({p, puntaje}) => (
                   <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
+                    {p.fotos?.[0] && (
+                      <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
+                        <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                      </div>
+                    )}
                     <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
                     <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
                       {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
@@ -1712,8 +1916,11 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
                   : semaforoBg(p._puntaje);
                 return (
                   <Card key={p.id} hoverable onClick={()=>onSelectProp(p.id)} style={isSel ? { outline:`2px solid ${c.accent}`, outlineOffset:-2 } : {}}>
-                    <div style={{ height:120, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <ImageIcon size={26} style={{ color:colorPuntaje(p._puntaje), opacity:0.35 }} />
+                    <div style={{ height:120, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                      {p.fotos?.[0]
+                        ? <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
+                        : <ImageIcon size={26} style={{ color:colorPuntaje(p._puntaje), opacity:0.35 }} />
+                      }
                       <div style={{ position:'absolute', top:10, left:10, width:30, height:30, borderRadius:'50%', background:i===0?c.amber:c.surface, color:i===0?'white':c.text, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14, boxShadow:shadow.sm }}>{i+1}</div>
                       <div style={{ position:'absolute', top:10, right:10, display:'flex', gap:6, alignItems:'center' }}>
                         {isAdmin && p.favorita && (
@@ -1754,8 +1961,11 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
                     onMouseLeave={e=>{ if (!isSel) e.currentTarget.style.background='transparent'; }}>
                     <Checkbox id={p.id} checked={isSel} disabled={limitReached} />
                     <div style={{ fontSize:13, color:c.textSubtle, fontWeight:600, width:32 }}>#{i+4}</div>
-                    <div style={{ width:40, height:40, borderRadius:9, background:semaforoBg(p._puntaje), display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <ImageIcon size={14} style={{ color:colorPuntaje(p._puntaje), opacity:0.5 }} />
+                    <div style={{ width:40, height:40, borderRadius:9, background:semaforoBg(p._puntaje), overflow:'hidden', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {p.fotos?.[0]
+                        ? <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                        : <ImageIcon size={14} style={{ color:colorPuntaje(p._puntaje), opacity:0.5 }} />
+                      }
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:14, fontWeight:600, marginBottom:2 }}>{p.nombre||'Sin nombre'}</div>
@@ -2446,6 +2656,7 @@ export default function App() {
           presupuesto={presupuesto}
           config={config}
           isAdmin={isAdmin}
+          userId={firebaseUser?.uid}
           onBack={() => setSelectedId(null)}
           onDelete={onDelete}
         />
