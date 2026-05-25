@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
 import { auth, googleProvider, db, storage } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -53,7 +53,7 @@ const CRITERIOS_DEFAULT = [
   {id:'estado',       label:'Estado / terminaciones',                 peso:3, tipo:'manual'},
   {id:'luminosidad',  label:'Luminosidad',                            peso:3, tipo:'manual'},
   {id:'exterior',     label:'Espacio exterior (terraza/balcón/jardín)',peso:4, tipo:'manual'},
-  {id:'cochera',      label:'Cochera',                                peso:3, tipo:'manual'},
+
   {id:'modificable',  label:'Posibilidad de modificar / ampliar',     peso:3, tipo:'manual'},
   {id:'tranquilidad', label:'Tranquilidad del barrio',                peso:3, tipo:'manual'},
   {id:'ruido',        label:'Ruido percibido',                        peso:2, tipo:'manual'},
@@ -68,6 +68,7 @@ const EMPRESAS_LUZ = ['Edenor','Edesur','Otra'];
 // Email del super-admin. Se aprueba automáticamente la primera vez.
 // Para sumarlo a otro usuario, hacerlo desde "Gestionar usuarios".
 const SUPER_ADMIN_EMAIL = 'jipochettino@gmail.com';
+const GOOGLE_MAPS_API_KEY = 'TU_API_KEY_ACA';
 
 // ============================================================
 // PALETA Y ESTILOS
@@ -1170,6 +1171,321 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
 };
 
 // ============================================================
+// GOOGLE MAPS — loader, autocomplete, mapa y distancias
+// ============================================================
+
+let gmapsPromise = null;
+const loadGoogleMaps = () => {
+  if (window.google?.maps) return Promise.resolve();
+  if (gmapsPromise) return gmapsPromise;
+  gmapsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('No se pudo cargar Google Maps'));
+    document.head.appendChild(script);
+  });
+  return gmapsPromise;
+};
+
+// Input con autocomplete de Google Places — solo CABA/Argentina
+const DireccionAutocomplete = ({ value, onSelect, placeholder = 'Av. Cabildo 2500, CABA', disabled }) => {
+  const inputRef = useRef(null);
+  const acRef = useRef(null);
+  const [inputVal, setInputVal] = useState(value || '');
+  const [gmReady, setGmReady] = useState(!!window.google?.maps);
+
+  useEffect(() => { setInputVal(value || ''); }, [value]);
+
+  useEffect(() => {
+    loadGoogleMaps().then(() => setGmReady(true)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!gmReady || !inputRef.current || acRef.current) return;
+    const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
+      componentRestrictions: { country: 'ar' },
+      fields: ['formatted_address', 'geometry'],
+      types: ['address'],
+    });
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace();
+      if (!place.geometry) return;
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      setInputVal(place.formatted_address);
+      onSelect({ direccion: place.formatted_address, lat, lng });
+    });
+    acRef.current = ac;
+  }, [gmReady]);
+
+  return (
+    <input
+      ref={inputRef}
+      value={inputVal}
+      onChange={e => setInputVal(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+      style={{
+        width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${c.border}`,
+        fontSize: 13, fontFamily: 'inherit', background: c.surface, color: c.text,
+        outline: 'none', boxSizing: 'border-box'
+      }}
+      onFocus={e => e.target.style.borderColor = c.accent}
+      onBlur={e => e.target.style.borderColor = c.border}
+    />
+  );
+};
+
+const COLORES_LUGARES = ['#4285F4','#EA4335','#34A853','#FBBC05','#9C27B0'];
+
+const MapaDistancias = ({ prop, lugaresRef, update, isAdmin }) => {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const [gmReady, setGmReady] = useState(!!window.google?.maps);
+  const [calculando, setCalculando] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadGoogleMaps().then(() => setGmReady(true)).catch(e => setError(e.message));
+  }, []);
+
+  const lugaresConCoords = lugaresRef.filter(l => l.lat && l.lng && l.nombre);
+  const propTieneCoords = prop.lat && prop.lng;
+  const distancias = prop.distancias || {};
+  const lugaresHash = lugaresConCoords.map(l => `${l.nombre}|${l.lat}|${l.lng}`).join(';;');
+  const distHashGuardado = prop.distanciasHash || '';
+
+  // Calcular distancias y rutas si no están o si cambiaron los lugares
+  useEffect(() => {
+    if (!gmReady || !propTieneCoords || lugaresConCoords.length === 0) return;
+    if (distHashGuardado === lugaresHash && Object.keys(distancias).length > 0) return;
+
+    const calcular = async () => {
+      setCalculando(true);
+      setError(null);
+      try {
+        const dm = new window.google.maps.DistanceMatrixService();
+        const origin = new window.google.maps.LatLng(prop.lat, prop.lng);
+        const destinations = lugaresConCoords.map(l => new window.google.maps.LatLng(l.lat, l.lng));
+
+        dm.getDistanceMatrix({
+          origins: [origin],
+          destinations,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+          unitSystem: window.google.maps.UnitSystem.METRIC,
+        }, (resp, status) => {
+          if (status !== 'OK') { setError('Error al calcular distancias'); setCalculando(false); return; }
+          const row = resp.rows[0].elements;
+          const nuevas = {};
+          lugaresConCoords.forEach((l, i) => {
+            if (row[i].status === 'OK') {
+              nuevas[`${l.nombre}|${l.lat}|${l.lng}`] = {
+                nombre: l.nombre,
+                tiempoMin: Math.round(row[i].duration.value / 60),
+                distanciaKm: (row[i].distance.value / 1000).toFixed(1),
+                tiempoTexto: row[i].duration.text,
+                distanciaTexto: row[i].distance.text,
+              };
+            }
+          });
+          update('distancias', nuevas);
+          update('distanciasHash', lugaresHash);
+          setCalculando(false);
+        });
+      } catch (e) {
+        setError('Error al calcular distancias');
+        setCalculando(false);
+      }
+    };
+    calcular();
+  }, [gmReady, propTieneCoords, lugaresHash]);
+
+  // Inicializar mapa
+  useEffect(() => {
+    if (!gmReady || !propTieneCoords || !mapRef.current) return;
+
+    const center = { lat: prop.lat, lng: prop.lng };
+    const map = new window.google.maps.Map(mapRef.current, {
+      center,
+      zoom: 13,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+      styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+    });
+    mapInstanceRef.current = map;
+
+    // Marker de la propiedad
+    const propMarker = new window.google.maps.Marker({
+      position: center,
+      map,
+      title: prop.nombre || 'Propiedad',
+      icon: {
+        path: window.google.maps.SymbolPath.CIRCLE,
+        scale: 10,
+        fillColor: '#E53935',
+        fillOpacity: 1,
+        strokeColor: 'white',
+        strokeWeight: 2,
+      },
+      zIndex: 10,
+    });
+
+    // InfoWindow de la propiedad con foto
+    const fotoPrincipal = prop.fotos?.[0];
+    const iwContent = `
+      <div style="max-width:200px;font-family:sans-serif">
+        ${fotoPrincipal ? `<img src="${fotoPrincipal}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px" />` : ''}
+        <div style="font-weight:600;font-size:13px;margin-bottom:3px">${prop.nombre || 'Propiedad'}</div>
+        <div style="font-size:11px;color:#666">${prop.zona || ''} · ${prop.tipo || ''}</div>
+        ${prop.precioPedido ? `<div style="font-size:12px;font-weight:600;color:#E53935;margin-top:4px">USD ${prop.precioPedido.toLocaleString()}</div>` : ''}
+      </div>
+    `;
+    const infoWindowProp = new window.google.maps.InfoWindow({ content: iwContent });
+    propMarker.addListener('click', () => infoWindowProp.open(map, propMarker));
+
+    // Bounds para hacer zoom automático
+    const bounds = new window.google.maps.LatLngBounds();
+    bounds.extend(center);
+
+    // Markers de lugares de referencia + rutas
+    const directionsService = new window.google.maps.DirectionsService();
+
+    lugaresConCoords.forEach((lugar, i) => {
+      const color = COLORES_LUGARES[i % COLORES_LUGARES.length];
+      const lugarPos = { lat: lugar.lat, lng: lugar.lng };
+      bounds.extend(lugarPos);
+
+      // Marker del lugar
+      const marker = new window.google.maps.Marker({
+        position: lugarPos,
+        map,
+        title: lugar.nombre,
+        label: {
+          text: (i + 1).toString(),
+          color: 'white',
+          fontWeight: 'bold',
+          fontSize: '12px',
+        },
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: 'white',
+          strokeWeight: 2,
+        },
+      });
+
+      // Distancia en infowindow del lugar
+      const key = `${lugar.nombre}|${lugar.lat}|${lugar.lng}`;
+      const dist = distancias[key];
+      const distInfo = dist
+        ? `<div style="font-size:12px;margin-top:6px">🚗 <b>${dist.tiempoTexto}</b> · ${dist.distanciaTexto}</div>`
+        : `<div style="font-size:11px;color:#999;margin-top:4px">Calculando...</div>`;
+
+      const iwLugar = new window.google.maps.InfoWindow({
+        content: `<div style="font-family:sans-serif"><div style="font-weight:600;font-size:13px">${lugar.nombre}</div><div style="font-size:11px;color:#666">${lugar.direccion}</div>${distInfo}</div>`
+      });
+      marker.addListener('click', () => iwLugar.open(map, marker));
+
+      // Ruta real en auto
+      directionsService.route({
+        origin: center,
+        destination: lugarPos,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      }, (result, status) => {
+        if (status === 'OK') {
+          new window.google.maps.DirectionsRenderer({
+            map,
+            directions: result,
+            suppressMarkers: true,
+            polylineOptions: {
+              strokeColor: color,
+              strokeOpacity: 0.7,
+              strokeWeight: 4,
+            },
+          });
+        }
+      });
+    });
+
+    if (lugaresConCoords.length > 0) {
+      map.fitBounds(bounds, { padding: 50 });
+    }
+
+    return () => { mapInstanceRef.current = null; };
+  }, [gmReady, prop.lat, prop.lng, lugaresConCoords.length, JSON.stringify(distancias)]);
+
+  // Estado: sin dirección
+  if (!propTieneCoords) {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 20px', background: c.surfaceAlt, borderRadius: 10, color: c.textMuted }}>
+        <MapPin size={28} style={{ marginBottom: 10, opacity: 0.4 }} />
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Sin dirección cargada</div>
+        <div style={{ fontSize: 12 }}>Completá la dirección en Identificación para ver el mapa.</div>
+      </div>
+    );
+  }
+
+  // Estado: sin lugares de referencia
+  if (lugaresConCoords.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '32px 20px', background: c.surfaceAlt, borderRadius: 10, color: c.textMuted }}>
+        <Navigation size={28} style={{ marginBottom: 10, opacity: 0.4 }} />
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>Sin lugares de referencia</div>
+        <div style={{ fontSize: 12 }}>Agregá lugares en Configuración para ver distancias.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Mapa */}
+      {error && (
+        <div style={{ fontSize: 12, color: c.red, padding: '8px 12px', background: c.redSoft, borderRadius: 8, marginBottom: 10 }}>
+          ⚠️ {error}
+        </div>
+      )}
+      <div ref={mapRef} style={{ width: '100%', height: 340, borderRadius: 10, overflow: 'hidden', marginBottom: 14, background: c.surfaceAlt }} />
+
+      {/* Tabla de distancias */}
+      {calculando ? (
+        <div style={{ fontSize: 12, color: c.textMuted, textAlign: 'center', padding: '10px 0' }}>Calculando distancias...</div>
+      ) : (
+        <div>
+          {lugaresConCoords.map((lugar, i) => {
+            const key = `${lugar.nombre}|${lugar.lat}|${lugar.lng}`;
+            const dist = distancias[key];
+            const color = COLORES_LUGARES[i % COLORES_LUGARES.length];
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', background: c.surfaceAlt, borderRadius: 8, marginBottom: 7 }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{lugar.nombre}</div>
+                  <div style={{ fontSize: 11, color: c.textMuted }}>{lugar.direccion}</div>
+                </div>
+                {dist ? (
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>🚗 {dist.tiempoTexto}</div>
+                    <div style={{ fontSize: 11, color: c.textMuted }}>{dist.distanciaTexto}</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: c.textMuted }}>—</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
 // HISTORIAL DE PRECIO
 // ============================================================
 
@@ -1246,7 +1562,7 @@ const HistorialPrecio = ({ prop, update }) => {
 // ============================================================
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
-  const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, proceso:false, negociacion:false, visita:false, notas:false });
+  const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, mapa:true, proceso:false, negociacion:false, visita:false, notas:false });
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
     const keys = path.split('.');
@@ -1331,7 +1647,19 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       {/* IDENTIFICACIÓN */}
       <Section icon={Info} title="Identificación" open={sec.ident} onToggle={()=>toggle('ident')}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:12 }}>
-          <Field label="Dirección"><TextInput defaultValue={prop.direccion} onCommit={v=>update('direccion',v)} placeholder="Calle 1234" /></Field>
+          <Field label="Dirección">
+            <DireccionAutocomplete
+              value={prop.direccion}
+              placeholder="Calle 1234, CABA"
+              onSelect={({ direccion, lat, lng }) => {
+                update('direccion', direccion);
+                update('lat', lat);
+                update('lng', lng);
+                // resetear distancias para que se recalculen
+                update('distanciasHash', '');
+              }}
+            />
+          </Field>
           <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>update('zona',v)} options={ZONAS} /></Field>
           <Field label="Tipo de propiedad"><Select value={prop.tipo} onChange={v=>update('tipo',v)} options={TIPOS} /></Field>
           <Field label="Subtipo"><Select value={prop.subtipo} onChange={v=>update('subtipo',v)} options={SUBTIPOS} /></Field>
@@ -1517,6 +1845,11 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         </div>
         <SemaforoDemanda prop={prop} update={update} />
         <HistorialPrecio prop={prop} update={update} />
+      </Section>
+
+      {/* MAPA Y DISTANCIAS */}
+      <Section icon={Map} title="Mapa y distancias" open={sec.mapa} onToggle={()=>toggle('mapa')}>
+        <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
       </Section>
 
       {/* PROCESO */}
@@ -2339,7 +2672,7 @@ const ConfiguracionView = ({ config, setConfig, criterios }) => {
           <div>
             <h3 style={{ margin:'0 0 4px', fontSize:15, fontWeight:600 }}>Lugares de referencia</h3>
             <p style={{ margin:'0 0 16px', fontSize:12, color:c.textMuted }}>
-              Se van a usar para calcular distancias automáticamente con Google Maps (próxima versión).
+              Se usan para calcular distancias en auto y mostrar rutas en el mapa de cada propiedad.
             </p>
           </div>
           {lugaresRef.length < 5 && (
@@ -2359,7 +2692,14 @@ const ConfiguracionView = ({ config, setConfig, criterios }) => {
                 <TextInput defaultValue={lugar.nombre} onCommit={v => actualizarLugar(i, 'nombre', v)} placeholder="Ej: Trabajo, Jardín..." />
               </Field>
               <Field label={i === 0 ? 'Dirección' : undefined}>
-                <TextInput defaultValue={lugar.direccion} onCommit={v => actualizarLugar(i, 'direccion', v)} placeholder="Av. Corrientes 1234, CABA" />
+                <DireccionAutocomplete
+                  value={lugar.direccion}
+                  placeholder="Av. Corrientes 1234, CABA"
+                  onSelect={({ direccion, lat, lng }) => {
+                    const nuevos = lugaresRef.map((l, idx) => idx === i ? { ...l, direccion, lat, lng } : l);
+                    updCfg('lugaresReferencia', nuevos);
+                  }}
+                />
               </Field>
               <button onClick={() => eliminarLugar(i)}
                 style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:'10px 6px', marginBottom:14 }}>
