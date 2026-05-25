@@ -1371,7 +1371,289 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, o
 // RANKING
 // ============================================================
 
+// ============================================================
+// COMPARADOR — modal lado a lado
+// ============================================================
+
+const semaforoVsBarrio = (usdM2Prop, promedioBarrio) => {
+  if (!usdM2Prop || !promedioBarrio) return { estado:'sin-datos', label:'—', pct:null, fg:c.textMuted, bg:'#F0EFEB' };
+  const diff = (usdM2Prop - promedioBarrio) / promedioBarrio * 100;
+  if (diff <= -5) return { estado:'verde', label:'Oportunidad', pct:diff, fg:c.green, bg:c.greenSoft };
+  if (diff >= 5)  return { estado:'rojo',  label:'Caro',         pct:diff, fg:c.red,   bg:c.redSoft };
+  return                  { estado:'amber', label:'Justo',        pct:diff, fg:c.amber, bg:c.amberSoft };
+};
+
+const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin, onClose, onSelectProp }) => {
+  // Pre-computar datos por propiedad
+  const datos = propiedades.map(p => {
+    const m2pond = (p.m2Cubiertos||0) + (p.m2Descubiertos||0)*0.5;
+    const usdM2 = m2pond>0 && p.precioPedido ? p.precioPedido/m2pond : null;
+    const analisis = calcularAnalisis(p, presupuesto, config);
+    const puntaje = calcularPuntaje(p.puntajes, criterios);
+    const vsBarrio = semaforoVsBarrio(usdM2, p.promedioBarrio);
+    const excluyentesAct = EXCLUYENTES_DISPONIBLES.filter(e => (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes(e.id) && e.id !== 'cochera');
+    const exCumple = excluyentesAct.filter(e => p.excluyentes?.[e.id]).length;
+    const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
+    const cocheraCumple = p.cochera === true;
+    const totalExcl = excluyentesAct.length + (cocheraActiva ? 1 : 0);
+    const cumpleExclCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
+    // Historial de bajadas
+    const histPrecio = p.aviso?.historialPrecio || [];
+    let bajadas = null;
+    if (histPrecio.length >= 2) {
+      const primero = histPrecio[0];
+      const ultimo = histPrecio[histPrecio.length - 1];
+      const diff = ultimo.precio - primero.precio;
+      if (diff < 0) {
+        const pct = primero.precio > 0 ? Math.abs(diff/primero.precio*100) : 0;
+        bajadas = { count: histPrecio.length - 1, diff: Math.abs(diff), pct };
+      }
+    }
+    return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio };
+  });
+
+  // Helpers para resaltar ganadores
+  const winnerIdx = (values, mode) => {
+    const valid = values.map((v,i) => ({v,i})).filter(x => x.v !== null && x.v !== undefined && !isNaN(x.v));
+    if (valid.length < 2) return -1;
+    let best = valid[0];
+    for (const x of valid) {
+      if (mode==='min' && x.v < best.v) best = x;
+      if (mode==='max' && x.v > best.v) best = x;
+    }
+    // Si hay empate en el mejor valor, no resaltar
+    const tied = valid.filter(x => x.v === best.v).length > 1;
+    if (tied) return -1;
+    return best.i;
+  };
+
+  const winnerVsBarrio = (() => {
+    // Verde gana, después amber, después rojo. Si hay varios verdes -> el de menor pct (más barato)
+    const order = { verde:0, amber:1, rojo:2, 'sin-datos':3 };
+    const valid = datos.map((d,i) => ({d,i})).filter(x => x.d.vsBarrio.estado !== 'sin-datos');
+    if (valid.length < 2) return -1;
+    valid.sort((a,b) => {
+      const oa = order[a.d.vsBarrio.estado], ob = order[b.d.vsBarrio.estado];
+      if (oa !== ob) return oa - ob;
+      return a.d.vsBarrio.pct - b.d.vsBarrio.pct;
+    });
+    const ties = valid.filter(x => x.d.vsBarrio.estado===valid[0].d.vsBarrio.estado && x.d.vsBarrio.pct===valid[0].d.vsBarrio.pct).length;
+    if (ties > 1) return -1;
+    return valid[0].i;
+  })();
+
+  const winners = {
+    precioPedido: winnerIdx(datos.map(d => d.p.precioPedido||null), 'min'),
+    usdM2:        winnerIdx(datos.map(d => d.usdM2), 'min'),
+    m2pond:       winnerIdx(datos.map(d => d.m2pond||null), 'max'),
+    ambientes:    winnerIdx(datos.map(d => d.p.ambientes||null), 'max'),
+    banos:        winnerIdx(datos.map(d => d.p.banos||null), 'max'),
+    antiguedad:   winnerIdx(datos.map(d => d.p.antiguedad===undefined||d.p.antiguedad===null?null:d.p.antiguedad), 'min'),
+    excluyentes:  winnerIdx(datos.map(d => d.totalExcl>0 ? d.cumpleExclCount/d.totalExcl : null), 'max'),
+    costoTotal:   winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.costoTotal : null), 'min'),
+    vsPresup:     winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.resultado : null), 'max'),
+    vsBarrio:     winnerVsBarrio,
+  };
+
+  const winnerStyle = (isWinner) => isWinner
+    ? { background:c.greenSoft, borderRadius:6, padding:'3px 7px', display:'inline-block', fontWeight:600 }
+    : {};
+
+  const Row = ({ label, children, sticky }) => (
+    <tr style={sticky ? { background:c.surfaceAlt } : {}}>
+      <td style={{ padding:'11px 14px', fontSize:12, color:c.textMuted, fontWeight:500, borderBottom:`1px solid ${c.border}`, position:'sticky', left:0, background:c.surface, zIndex:1, minWidth:160 }}>{label}</td>
+      {children}
+    </tr>
+  );
+
+  const SectionHeader = ({ title, colspan }) => (
+    <tr>
+      <td colSpan={colspan} style={{ padding:'14px 14px 8px', fontSize:11, fontWeight:600, color:c.textSubtle, textTransform:'uppercase', letterSpacing:0.6, background:c.surface, position:'sticky', left:0 }}>{title}</td>
+    </tr>
+  );
+
+  const cellStyle = { padding:'11px 14px', fontSize:13, borderBottom:`1px solid ${c.border}`, minWidth:180, verticalAlign:'top' };
+
+  const colspan = datos.length + 1;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', zIndex:1000, display:'flex', alignItems:'flex-start', justifyContent:'center', overflowY:'auto', padding:'24px 12px' }}>
+      <div style={{ background:c.surface, borderRadius:14, width:'100%', maxWidth:1100, boxShadow:shadow.lg, overflow:'hidden' }}>
+        {/* Header del modal */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:`1px solid ${c.border}`, background:c.surface, position:'sticky', top:0, zIndex:5 }}>
+          <div>
+            <div style={{ fontSize:17, fontWeight:700 }}>Comparador</div>
+            <div style={{ fontSize:12, color:c.textMuted, marginTop:2 }}>{datos.length} propiedades · La mejor de cada fila se resalta en verde</div>
+          </div>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', padding:8, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:c.textMuted }} onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Tabla scroll horizontal */}
+        <div style={{ overflowX:'auto', maxHeight:'80vh', overflowY:'auto' }}>
+          <table style={{ borderCollapse:'collapse', width:'100%' }}>
+            <thead>
+              <tr>
+                <th style={{ background:c.surface, position:'sticky', left:0, top:0, zIndex:6, minWidth:160 }}></th>
+                {datos.map(({p, puntaje}) => (
+                  <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
+                    <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
+                    <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
+                      {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                      <div style={{ width:38, height:38, borderRadius:9, background:semaforoBg(puntaje), display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:colorPuntaje(puntaje) }}>{puntaje}</div>
+                      <div style={{ fontSize:11, color:c.textMuted }}>Puntaje</div>
+                    </div>
+                    <button onClick={()=>{ onClose(); onSelectProp(p.id); }} style={{ fontSize:11, fontWeight:600, color:c.accent, background:'transparent', border:`1px solid ${c.accent}`, borderRadius:7, padding:'5px 9px', cursor:'pointer' }}>Ver ficha completa</button>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* PRECIO */}
+              <SectionHeader title="Precio" colspan={colspan} />
+              <Row label="Precio pedido">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.precioPedido===i)}>{d.p.precioPedido ? fmtUSD(d.p.precioPedido) : '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="USD/m² propiedad">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.usdM2===i)}>{d.usdM2 ? fmtUSD(d.usdM2) : '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="USD/m² barrio">
+                {datos.map(d => (
+                  <td key={d.p.id} style={{ ...cellStyle, color:c.textMuted }}>{d.p.promedioBarrio ? fmtUSD(d.p.promedioBarrio) : '—'}</td>
+                ))}
+              </Row>
+              <Row label="Historial bajadas">
+                {datos.map(d => (
+                  <td key={d.p.id} style={cellStyle}>
+                    {d.bajadas
+                      ? <span style={{ color:c.green, fontWeight:500 }}>↓ Bajó {d.bajadas.pct.toFixed(1)}%</span>
+                      : d.histPrecio.length >= 1
+                        ? <span style={{ color:c.textMuted }}>Sin bajadas</span>
+                        : <span style={{ color:c.textMuted }}>—</span>
+                    }
+                  </td>
+                ))}
+              </Row>
+
+              {/* FÍSICO */}
+              <SectionHeader title="Físico" colspan={colspan} />
+              <Row label="m² cubiertos">
+                {datos.map(d => <td key={d.p.id} style={cellStyle}>{d.p.m2Cubiertos ? `${fmtNum(d.p.m2Cubiertos,0)} m²` : '—'}</td>)}
+              </Row>
+              <Row label="m² descubiertos">
+                {datos.map(d => <td key={d.p.id} style={cellStyle}>{d.p.m2Descubiertos ? `${fmtNum(d.p.m2Descubiertos,0)} m²` : '—'}</td>)}
+              </Row>
+              <Row label="m² ponderados">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.m2pond===i)}>{d.m2pond > 0 ? `${fmtNum(d.m2pond,1)} m²` : '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Ambientes">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.ambientes===i)}>{d.p.ambientes || '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Baños">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.banos===i)}>{d.p.banos || '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Antigüedad">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.antiguedad===i)}>{d.p.antiguedad !== undefined && d.p.antiguedad !== null ? `${d.p.antiguedad} ${d.p.antiguedad===1?'año':'años'}` : '—'}</span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Cochera">
+                {datos.map(d => <td key={d.p.id} style={cellStyle}>{d.p.cochera === true ? 'Sí' : d.p.cochera === false ? 'No' : '—'}</td>)}
+              </Row>
+
+              {/* ANÁLISIS VALORA */}
+              <SectionHeader title="Análisis Valora" colspan={colspan} />
+              <Row label="Precio vs barrio">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    {d.vsBarrio.estado === 'sin-datos' ? (
+                      <span style={{ color:c.textMuted }}>—</span>
+                    ) : (
+                      <Badge bg={winners.vsBarrio===i ? c.greenSoft : d.vsBarrio.bg} color={d.vsBarrio.fg}>
+                        {d.vsBarrio.estado==='verde'?'🟢':d.vsBarrio.estado==='amber'?'🟡':'🔴'} {d.vsBarrio.label} ({d.vsBarrio.pct>=0?'+':''}{d.vsBarrio.pct.toFixed(1)}%)
+                      </Badge>
+                    )}
+                  </td>
+                ))}
+              </Row>
+              <Row label="Excluyentes">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    {d.totalExcl > 0 ? (
+                      <span style={winnerStyle(winners.excluyentes===i)}>{d.cumpleExclCount}/{d.totalExcl}</span>
+                    ) : '—'}
+                  </td>
+                ))}
+              </Row>
+              {isAdmin && (
+                <>
+                  <Row label="Costo total">
+                    {datos.map((d,i) => (
+                      <td key={d.p.id} style={cellStyle}>
+                        {d.analisis.estado !== 'sin-datos'
+                          ? <span style={winnerStyle(winners.costoTotal===i)}>{fmtUSD(d.analisis.costoTotal)}</span>
+                          : <span style={{ color:c.textMuted }}>—</span>
+                        }
+                      </td>
+                    ))}
+                  </Row>
+                  <Row label="Vs presupuesto">
+                    {datos.map((d,i) => {
+                      if (d.analisis.estado === 'sin-datos') return <td key={d.p.id} style={cellStyle}><span style={{ color:c.textMuted }}>—</span></td>;
+                      const colA = colorAnalisis(d.analisis.estado);
+                      return (
+                        <td key={d.p.id} style={cellStyle}>
+                          <span style={winnerStyle(winners.vsPresup===i)}>
+                            <span style={{ color:colA.fg, fontWeight:600 }}>{colA.label}</span>{' '}
+                            <span style={{ color:c.textMuted, fontSize:12 }}>{d.analisis.resultado>=0?'+':'−'}{fmtUSDk(Math.abs(d.analisis.resultado))}</span>
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </Row>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// RANKING
+// ============================================================
+
 const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onSelectProp }) => {
+  const [seleccionadas, setSeleccionadas] = useState([]);
+  const [comparadorAbierto, setComparadorAbierto] = useState(false);
+
   const ranked = useMemo(() =>
     propiedades.filter(p => p.estado!=='Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos))
       .map(p => ({ ...p, _puntaje:calcularPuntaje(p.puntajes,criterios), _analisis:calcularAnalisis(p,presupuesto,config) }))
@@ -1381,9 +1663,37 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
   const top3 = ranked.slice(0,3);
   const resto = ranked.slice(3);
 
+  const toggleSel = (id, e) => {
+    if (e) e.stopPropagation();
+    setSeleccionadas(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 3) return prev; // máximo 3
+      return [...prev, id];
+    });
+  };
+
+  const propsSeleccionadas = seleccionadas
+    .map(id => ranked.find(p => p.id === id))
+    .filter(Boolean);
+
+  const Checkbox = ({ id, checked, disabled, size=18 }) => (
+    <div onClick={(e)=>{ if (!disabled || checked) toggleSel(id, e); }}
+         style={{
+           width:size, height:size, borderRadius:5, border:`2px solid ${checked ? c.accent : c.border}`,
+           background: checked ? c.accent : c.surface, cursor: (!disabled || checked) ? 'pointer' : 'not-allowed',
+           display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 150ms',
+           opacity: (!disabled || checked) ? 1 : 0.4
+         }}
+         title={disabled && !checked ? 'Máximo 3 propiedades' : ''}>
+      {checked && <Check size={size-6} color="white" strokeWidth={3} />}
+    </div>
+  );
+
+  const limitReached = seleccionadas.length >= 3;
+
   return (
-    <div style={{ maxWidth:1100, margin:'0 auto', padding:'30px 24px 64px' }}>
-      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado" />
+    <div style={{ maxWidth:1100, margin:'0 auto', padding:'30px 24px 110px' }}>
+      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado · Marcá 2 o 3 para comparar" />
       {ranked.length === 0 ? (
         <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
           <Award size={28} style={{ color:c.textMuted, marginBottom:10 }} />
@@ -1396,19 +1706,25 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
             <div style={{ display:'grid', gridTemplateColumns:`repeat(${top3.length}, 1fr)`, gap:14, marginBottom:30 }}>
               {top3.map((p, i) => {
                 const colA = colorAnalisis(p._analisis.estado);
+                const isSel = seleccionadas.includes(p.id);
                 const hColor = isAdmin && p._analisis.estado !== 'sin-datos'
                   ? (p._analisis.estado==='rojo'?'#F7C1C1':p._analisis.estado==='amber'?'#FAC775':'#C0DD97')
                   : semaforoBg(p._puntaje);
                 return (
-                  <Card key={p.id} hoverable onClick={()=>onSelectProp(p.id)}>
+                  <Card key={p.id} hoverable onClick={()=>onSelectProp(p.id)} style={isSel ? { outline:`2px solid ${c.accent}`, outlineOffset:-2 } : {}}>
                     <div style={{ height:120, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center' }}>
                       <ImageIcon size={26} style={{ color:colorPuntaje(p._puntaje), opacity:0.35 }} />
                       <div style={{ position:'absolute', top:10, left:10, width:30, height:30, borderRadius:'50%', background:i===0?c.amber:c.surface, color:i===0?'white':c.text, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:14, boxShadow:shadow.sm }}>{i+1}</div>
-                      {isAdmin && p.favorita && (
-                        <div style={{ position:'absolute', top:10, right:10, width:24, height:24, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
-                          <Heart size={11} fill={c.accent} color={c.accent} />
+                      <div style={{ position:'absolute', top:10, right:10, display:'flex', gap:6, alignItems:'center' }}>
+                        {isAdmin && p.favorita && (
+                          <div style={{ width:24, height:24, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
+                            <Heart size={11} fill={c.accent} color={c.accent} />
+                          </div>
+                        )}
+                        <div style={{ background:c.surface, borderRadius:6, padding:4, boxShadow:shadow.sm }}>
+                          <Checkbox id={p.id} checked={isSel} disabled={limitReached} />
                         </div>
-                      )}
+                      </div>
                     </div>
                     <div style={{ padding:13 }}>
                       <div style={{ fontSize:14, fontWeight:600, marginBottom:3 }}>{p.nombre||'Sin nombre'}</div>
@@ -1430,11 +1746,13 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
             <Card>
               {resto.map((p, i) => {
                 const colA = colorAnalisis(p._analisis.estado);
+                const isSel = seleccionadas.includes(p.id);
                 return (
                   <div key={p.id} onClick={()=>onSelectProp(p.id)}
-                    style={{ padding:'13px 18px', display:'flex', alignItems:'center', gap:13, borderBottom:i<resto.length-1?`1px solid ${c.border}`:'none', cursor:'pointer', transition:'background 150ms' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    style={{ padding:'13px 18px', display:'flex', alignItems:'center', gap:13, borderBottom:i<resto.length-1?`1px solid ${c.border}`:'none', cursor:'pointer', transition:'background 150ms', background: isSel ? c.surfaceAlt : 'transparent' }}
+                    onMouseEnter={e=>{ if (!isSel) e.currentTarget.style.background=c.surfaceAlt; }}
+                    onMouseLeave={e=>{ if (!isSel) e.currentTarget.style.background='transparent'; }}>
+                    <Checkbox id={p.id} checked={isSel} disabled={limitReached} />
                     <div style={{ fontSize:13, color:c.textSubtle, fontWeight:600, width:32 }}>#{i+4}</div>
                     <div style={{ width:40, height:40, borderRadius:9, background:semaforoBg(p._puntaje), display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                       <ImageIcon size={14} style={{ color:colorPuntaje(p._puntaje), opacity:0.5 }} />
@@ -1453,6 +1771,44 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
             </Card>
           )}
         </>
+      )}
+
+      {/* Barra flotante de comparar */}
+      {seleccionadas.length > 0 && (
+        <div style={{ position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)', background:c.text, color:'white', padding:'12px 18px', borderRadius:14, boxShadow:shadow.lg, display:'flex', alignItems:'center', gap:14, zIndex:50 }}>
+          <div style={{ fontSize:13, fontWeight:500 }}>
+            {seleccionadas.length} {seleccionadas.length===1?'seleccionada':'seleccionadas'}
+            {seleccionadas.length === 1 && <span style={{ opacity:0.7, marginLeft:6 }}>· marcá 1 más</span>}
+            {limitReached && <span style={{ opacity:0.7, marginLeft:6 }}>· máximo alcanzado</span>}
+          </div>
+          <button
+            onClick={()=>setComparadorAbierto(true)}
+            disabled={seleccionadas.length < 2}
+            style={{
+              background: seleccionadas.length >= 2 ? c.accent : '#555',
+              color:'white', border:'none', borderRadius:9, padding:'8px 16px', fontSize:13, fontWeight:600,
+              cursor: seleccionadas.length >= 2 ? 'pointer' : 'not-allowed',
+              opacity: seleccionadas.length >= 2 ? 1 : 0.6
+            }}>
+            Comparar
+          </button>
+          <button onClick={()=>setSeleccionadas([])} style={{ background:'transparent', border:'none', color:'white', opacity:0.6, cursor:'pointer', padding:6, display:'flex', alignItems:'center' }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Modal del comparador */}
+      {comparadorAbierto && propsSeleccionadas.length >= 2 && (
+        <ComparadorModal
+          propiedades={propsSeleccionadas}
+          criterios={criterios}
+          presupuesto={presupuesto}
+          config={config}
+          isAdmin={isAdmin}
+          onClose={()=>setComparadorAbierto(false)}
+          onSelectProp={onSelectProp}
+        />
       )}
     </div>
   );
