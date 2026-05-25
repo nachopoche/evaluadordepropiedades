@@ -68,7 +68,7 @@ const EMPRESAS_LUZ = ['Edenor','Edesur','Otra'];
 // Email del super-admin. Se aprueba automáticamente la primera vez.
 // Para sumarlo a otro usuario, hacerlo desde "Gestionar usuarios".
 const SUPER_ADMIN_EMAIL = 'jipochettino@gmail.com';
-const GOOGLE_MAPS_API_KEY = 'TU_API_KEY_ACA';
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBYKTu5R81FvJxOdrIeoEHWt4dKL8EEk2A';
 
 // ============================================================
 // PALETA Y ESTILOS
