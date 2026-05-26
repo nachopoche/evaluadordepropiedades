@@ -68,7 +68,7 @@ const EMPRESAS_LUZ = ['Edenor','Edesur','Otra'];
 // Email del super-admin. Se aprueba automáticamente la primera vez.
 // Para sumarlo a otro usuario, hacerlo desde "Gestionar usuarios".
 const SUPER_ADMIN_EMAIL = 'jipochettino@gmail.com';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyBYKTu5R81FvJxOdrIeoEHWt4dKL8EEk2A';
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 // ============================================================
 // PALETA Y ESTILOS
@@ -1565,12 +1565,14 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, mapa:true, proceso:false, negociacion:false, visita:false, notas:false });
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
-    const keys = path.split('.');
-    const np = { ...prop };
-    let cur = np;
-    for (let i = 0; i < keys.length-1; i++) { cur[keys[i]] = { ...cur[keys[i]] }; cur = cur[keys[i]]; }
-    cur[keys[keys.length-1]] = value;
-    setProp(np);
+    setProp(prev => {
+      const keys = path.split('.');
+      const np = { ...prev };
+      let cur = np;
+      for (let i = 0; i < keys.length-1; i++) { cur[keys[i]] = { ...cur[keys[i]] }; cur = cur[keys[i]]; }
+      cur[keys[keys.length-1]] = value;
+      return np;
+    });
   };
 
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
@@ -2550,6 +2552,12 @@ const ConfiguracionView = ({ config, setConfig, criterios }) => {
     updCfg('lugaresReferencia', nuevos);
   };
 
+  // Actualiza varios campos a la vez de un lugar (evita race conditions al guardar dirección + lat + lng)
+  const actualizarLugarMulti = (i, cambios) => {
+    const nuevos = lugaresRef.map((l, idx) => idx === i ? { ...l, ...cambios } : l);
+    updCfg('lugaresReferencia', nuevos);
+  };
+
   const eliminarLugar = (i) => {
     updCfg('lugaresReferencia', lugaresRef.filter((_, idx) => idx !== i));
   };
@@ -2696,8 +2704,15 @@ const ConfiguracionView = ({ config, setConfig, criterios }) => {
                   value={lugar.direccion}
                   placeholder="Av. Corrientes 1234, CABA"
                   onSelect={({ direccion, lat, lng }) => {
-                    const nuevos = lugaresRef.map((l, idx) => idx === i ? { ...l, direccion, lat, lng } : l);
-                    updCfg('lugaresReferencia', nuevos);
+                    // Usamos setConfig funcional para leer SIEMPRE el state más reciente,
+                    // así no pisamos el nombre que pueda estar recién comprometido por blur.
+                    setConfig(prev => {
+                      const actuales = prev?.lugaresReferencia || [];
+                      const nuevos = actuales.map((l, idx) =>
+                        idx === i ? { ...l, direccion, lat, lng } : l
+                      );
+                      return { ...prev, lugaresReferencia: nuevos };
+                    });
                   }}
                 />
               </Field>
