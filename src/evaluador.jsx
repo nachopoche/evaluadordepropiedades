@@ -2931,36 +2931,45 @@ export default function App() {
     setSelectedId(null);
   }, [selectedId]);
 
-  const setPropActual = useCallback(async (updater) => {
-    const prop = propiedades.find(p => p.id === selectedId);
-    if (!prop) return;
-    const nuevoProp = typeof updater === 'function' ? updater(prop) : updater;
-    const { id, ...data } = nuevoProp;
-    await updateDoc(doc(db, 'propiedades', selectedId), data);
-  }, [selectedId, propiedades]);
+  const setPropActual = useCallback((updater) => {
+    setPropiedades(prev => {
+      const prop = prev.find(p => p.id === selectedId);
+      if (!prop) return prev;
+      const nuevoProp = typeof updater === 'function' ? updater(prop) : updater;
+      const { id, ...data } = nuevoProp;
+      updateDoc(doc(db, 'propiedades', selectedId), data).catch(console.error);
+      return prev.map(p => p.id === selectedId ? nuevoProp : p);
+    });
+  }, [selectedId]);
 
   const onRecuperar = useCallback(async (id) => {
     await updateDoc(doc(db, 'propiedades', id), { estado: 'Para visitar' });
   }, []);
 
   // Config/criterios/presupuesto handlers (guardan en Firestore)
-  const setCriteriosFirestore = useCallback(async (updater) => {
-    const nuevos = typeof updater === 'function' ? updater(criterios) : updater;
-    setCriterios(nuevos);
-    await updateDoc(doc(db, 'config', 'main'), { criterios: nuevos });
-  }, [criterios]);
+  const setCriteriosFirestore = useCallback((updater) => {
+    setCriterios(prev => {
+      const nuevos = typeof updater === 'function' ? updater(prev) : updater;
+      updateDoc(doc(db, 'config', 'main'), { criterios: nuevos }).catch(console.error);
+      return nuevos;
+    });
+  }, []);
 
-  const setPresupuestoFirestore = useCallback(async (updater) => {
-    const nuevo = typeof updater === 'function' ? updater(presupuesto) : updater;
-    setPresupuesto(nuevo);
-    await updateDoc(doc(db, 'config', 'main'), { presupuesto: nuevo });
-  }, [presupuesto]);
+  const setPresupuestoFirestore = useCallback((updater) => {
+    setPresupuesto(prev => {
+      const nuevo = typeof updater === 'function' ? updater(prev) : updater;
+      updateDoc(doc(db, 'config', 'main'), { presupuesto: nuevo }).catch(console.error);
+      return nuevo;
+    });
+  }, []);
 
-  const setConfigFirestore = useCallback(async (updater) => {
-    const nuevo = typeof updater === 'function' ? updater(config) : updater;
-    setConfig(nuevo);
-    await updateDoc(doc(db, 'config', 'main'), { configuracion: nuevo });
-  }, [config]);
+  const setConfigFirestore = useCallback((updater) => {
+    setConfig(prev => {
+      const nuevo = typeof updater === 'function' ? updater(prev) : updater;
+      updateDoc(doc(db, 'config', 'main'), { configuracion: nuevo }).catch(console.error);
+      return nuevo;
+    });
+  }, []);
 
   useEffect(() => { if (!isAdmin && (view === 'presupuesto' || view === 'configuracion')) setView('lista'); }, [isAdmin, view]);
 
