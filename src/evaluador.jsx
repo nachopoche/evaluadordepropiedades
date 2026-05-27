@@ -3067,7 +3067,7 @@ export default function App() {
     });
 
     return () => unsubs.forEach(u => u());
-  }, [isApproved, isAdmin]);
+  }, [isApproved, isAdmin, firebaseUser]);
 
   // Onboarding
   const handleCerrarOnboarding = async () => {
