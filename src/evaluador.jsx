@@ -3101,9 +3101,9 @@ export default function App() {
   const onNuevaProp = useCallback(async () => {
     if (!firebaseUser) return;
     const nueva = { nombre:'Nueva propiedad', estado:'Para visitar', excluyentes:{}, puntajes:{}, favorita:false, gastosPct:2, createdAt: new Date().toISOString() };
-    const ref = await addDoc(collection(db, 'users', firebaseUser.uid, 'propiedades'), nueva);
+    const docRef = await addDoc(collection(db, 'users', firebaseUser.uid, 'propiedades'), nueva);
     trackEvent(firebaseUser.uid, 'propiedadesCreadas');
-    setSelectedId(ref.id);
+    setSelectedId(docRef.id);
   }, [firebaseUser]);
 
   const onDelete = useCallback(async () => {
