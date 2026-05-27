@@ -1,8 +1,8 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
 import { auth, googleProvider, db, storage } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot, collection, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // ============================================================
@@ -71,6 +71,86 @@ const SUPER_ADMIN_EMAIL = 'jipochettino@gmail.com';
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 // ============================================================
+// CONTEXT — uid disponible en toda la app sin prop drilling
+// ============================================================
+
+const UserContext = createContext(null);
+const useUser = () => useContext(UserContext);
+
+// ============================================================
+// TRACKING — métricas en /users/{uid}/stats/main
+// ============================================================
+
+const trackEvent = async (uid, campo, inc = 1) => {
+  if (!uid) return;
+  try {
+    await updateDoc(doc(db, 'users', uid, 'stats', 'main'), {
+      [campo]: increment(inc),
+      ultimaActualizacion: new Date().toISOString(),
+    });
+  } catch { /* doc puede no existir todavía */ }
+};
+
+const trackLogin = async (uid, email, displayName) => {
+  if (!uid) return;
+  try {
+    const statsRef = doc(db, 'users', uid, 'stats', 'main');
+    const ahora = new Date().toISOString();
+    const hoy = ahora.slice(0, 10);
+    const snap = await getDoc(statsRef);
+    if (!snap.exists()) {
+      await setDoc(statsRef, {
+        email, displayName,
+        fechaCreacionCuenta: ahora,
+        ultimaActualizacion: ahora,
+        ultimoLogin: ahora,
+        ultimosLogins: [hoy],
+        logins: 1,
+        propiedadesCreadas: 0,
+        propiedadesActivas: 0,
+        propiedadesDescartadas: 0,
+        favoritas: 0,
+        comparadorAbierto: 0,
+        detalleAbierto: 0,
+        fotosSubidas: 0,
+        mapaUsado: 0,
+        criteriosEditados: 0,
+        presupuestoEditado: 0,
+        excluyentesEditados: 0,
+        lugaresEditados: 0,
+        onboardingCompleto: false,
+        presupuestoConfigurado: false,
+        criteriosConfigurados: false,
+        lugaresReferenciaConfigurados: false,
+      });
+    } else {
+      const data = snap.data();
+      const logins = (data.ultimosLogins || []).filter(d => d !== hoy).slice(-9);
+      logins.push(hoy);
+      await updateDoc(statsRef, {
+        logins: increment(1),
+        ultimoLogin: ahora,
+        ultimaActualizacion: ahora,
+        ultimosLogins: logins,
+        email, displayName,
+      });
+    }
+  } catch (e) { console.error('trackLogin', e); }
+};
+
+const trackStatsSnapshot = async (uid, propiedades) => {
+  if (!uid || !propiedades) return;
+  try {
+    await updateDoc(doc(db, 'users', uid, 'stats', 'main'), {
+      propiedadesActivas: propiedades.filter(p => p.estado !== 'Descartada').length,
+      propiedadesDescartadas: propiedades.filter(p => p.estado === 'Descartada').length,
+      favoritas: propiedades.filter(p => p.favorita).length,
+      ultimaActualizacion: new Date().toISOString(),
+    });
+  } catch { /* silent */ }
+};
+
+// ============================================================
 // PALETA Y ESTILOS
 // ============================================================
 
@@ -88,7 +168,7 @@ const c = {
   purple:'#534AB7', purpleSoft:'#EEEDFE',
 };
 
-const shadow = { sm:'0 1px 2px rgba(30,45,74,0.06)', hover:'0 8px 28px rgba(30,45,74,0.14)' };
+const shadow = { sm:'0 1px 2px rgba(30,45,74,0.06)', hover:'0 8px 28px rgba(30,45,74,0.14)', lg:'0 20px 60px rgba(30,45,74,0.25)' };
 const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 // ============================================================
@@ -470,6 +550,88 @@ const LoginScreen = ({ onLogin, error }) => (
   </div>
 );
 
+
+// ============================================================
+// MODAL MIGRACIÓN — botón temporal para copiar datos viejos al nuevo esquema
+// ============================================================
+
+const MigracionModal = ({ uid, onClose }) => {
+  const [estado, setEstado] = useState('idle');
+  const [log, setLog] = useState([]);
+  const agregar = (msg) => setLog(prev => [...prev, msg]);
+
+  const migrar = async () => {
+    setEstado('migrando');
+    setLog([]);
+    try {
+      agregar('📦 Leyendo propiedades del esquema viejo...');
+      const propsSnap = await getDocs(collection(db, 'propiedades'));
+      agregar(`✅ ${propsSnap.docs.length} propiedades encontradas`);
+
+      agregar('📦 Leyendo configuración vieja...');
+      const configSnap = await getDoc(doc(db, 'config', 'main'));
+      if (configSnap.exists()) agregar('✅ Config encontrada');
+      else agregar('⚠️ Config no encontrada — se usarán defaults');
+
+      agregar('🔄 Copiando propiedades al nuevo esquema...');
+      for (const d of propsSnap.docs) {
+        await setDoc(doc(db, 'users', uid, 'propiedades', d.id), d.data());
+      }
+      agregar(`✅ ${propsSnap.docs.length} propiedades copiadas`);
+
+      if (configSnap.exists()) {
+        agregar('🔄 Copiando configuración...');
+        await setDoc(doc(db, 'users', uid, 'config', 'main'), configSnap.data());
+        agregar('✅ Config copiada');
+      }
+
+      agregar('');
+      agregar('🎉 Migración completa. Recargá la página.');
+      agregar('Después podés borrar /propiedades y /config desde Firebase Console.');
+      setEstado('ok');
+    } catch (e) {
+      agregar(`❌ Error: ${e.message}`);
+      setEstado('error');
+    }
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.6)', backdropFilter:'blur(6px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+      <div style={{ background:c.surface, borderRadius:20, padding:32, maxWidth:520, width:'100%', boxShadow:shadow.lg, fontFamily:FONT }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+          <div>
+            <h2 style={{ margin:0, fontSize:20, fontWeight:700 }}>Migrar datos</h2>
+            <p style={{ margin:'4px 0 0', fontSize:13, color:c.textMuted }}>Copia tus datos al nuevo esquema por usuario</p>
+          </div>
+          {estado !== 'migrando' && <button onClick={onClose} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted }}><X size={20} /></button>}
+        </div>
+
+        {estado === 'idle' && (
+          <>
+            <div style={{ padding:14, background:c.amberSoft, borderRadius:10, fontSize:13, color:c.amber, marginBottom:20, lineHeight:1.6 }}>
+              <strong>¿Qué hace esto?</strong> Copia tus propiedades y configuración al nuevo esquema privado por usuario. Las colecciones viejas quedan intactas — las borrás vos después desde Firebase Console cuando confirmes que todo está OK.
+            </div>
+            <Button variant="primary" onClick={migrar} style={{ width:'100%' }}>Iniciar migración</Button>
+          </>
+        )}
+
+        {(estado === 'migrando' || estado === 'ok' || estado === 'error') && (
+          <div style={{ background:'#1E2D4A', borderRadius:10, padding:16, fontFamily:'monospace', fontSize:12, color:'#C0DD97', maxHeight:280, overflowY:'auto' }}>
+            {log.map((l,i) => <div key={i} style={{ marginBottom:4, color:l.startsWith('❌')?'#F7C1C1':l.startsWith('⚠️')?'#FAC775':'#C0DD97' }}>{l||'\u00A0'}</div>)}
+            {estado === 'migrando' && <div style={{ color:'#9AAABB' }}>...</div>}
+          </div>
+        )}
+
+        {estado === 'ok' && (
+          <Button variant="primary" onClick={()=>window.location.reload()} style={{ width:'100%', marginTop:16 }}>
+            Recargar la app
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // PANTALLA DE ESPERA
 // ============================================================
@@ -492,7 +654,7 @@ const WaitingScreen = ({ user, onLogout }) => (
 // NAVBAR
 // ============================================================
 
-const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios, onAbrirGuia }) => {
+const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios, onAbrirGuia, onAbrirMigracion, migracionDisponible }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const items = [
@@ -577,6 +739,12 @@ const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, 
                       Gestionar usuarios
                     </span>
                     {pendientes > 0 && <Badge bg={c.accent} color="white">{pendientes}</Badge>}
+                  </button>
+                )}
+                {migracionDisponible && (
+                  <button onClick={()=>{setShowUserMenu(false); onAbrirMigracion();}}
+                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:c.amberSoft, border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.amber, fontSize:13, fontFamily:FONT, fontWeight:600, marginBottom:4 }}>
+                    <Clock size={14} /> Migrar datos al nuevo sistema
                   </button>
                 )}
                 <button onClick={()=>{setShowUserMenu(false); onLogout();}}
@@ -788,6 +956,8 @@ const StatsAdmin = ({ presupuesto, config, topProp }) => {
 // ============================================================
 
 const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp }) => {
+  const { uid } = useUser();
+  const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
     if (filtros.zona && p.zona !== filtros.zona) return false;
     if (filtros.estado && p.estado !== filtros.estado) return false;
@@ -859,7 +1029,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
         </Card>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:18 }}>
-          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>onSelectProp(prop.id)} />)}
+          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} />)}
         </div>
       )}
     </div>
@@ -1049,6 +1219,7 @@ const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
 };
 
 const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
+  const { uid } = useUser();
   const fotos = prop.fotos || [];
   const [subiendo, setSubiendo] = useState({});
   const [errores, setErrores] = useState({});
@@ -1080,6 +1251,7 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
               const url = await getDownloadURL(task.snapshot.ref);
               update('fotos', [...(prop.fotos || []), url]);
               setSubiendo(p => { const n = {...p}; delete n[tempId]; return n; });
+              trackEvent(uid, 'fotosSubidas');
               resolve();
             }
           );
@@ -2190,8 +2362,11 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
 // ============================================================
 
 const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onSelectProp }) => {
+  const { uid } = useUser();
   const [seleccionadas, setSeleccionadas] = useState([]);
   const [comparadorAbierto, setComparadorAbierto] = useState(false);
+  const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
+  const abrirComparador = () => { trackEvent(uid, 'comparadorAbierto'); setComparadorAbierto(true); };
 
   const ranked = useMemo(() =>
     propiedades.filter(p => p.estado!=='Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos))
@@ -2250,7 +2425,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
                   ? (p._analisis.estado==='rojo'?'#F7C1C1':p._analisis.estado==='amber'?'#FAC775':'#C0DD97')
                   : semaforoBg(p._puntaje);
                 return (
-                  <Card key={p.id} hoverable onClick={()=>onSelectProp(p.id)} style={isSel ? { outline:`2px solid ${c.accent}`, outlineOffset:-2 } : {}}>
+                  <Card key={p.id} hoverable onClick={()=>handleSelectProp(p.id)} style={isSel ? { outline:`2px solid ${c.accent}`, outlineOffset:-2 } : {}}>
                     <div style={{ height:120, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
                       {p.fotos?.[0]
                         ? <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
@@ -2290,7 +2465,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
                 const colA = colorAnalisis(p._analisis.estado);
                 const isSel = seleccionadas.includes(p.id);
                 return (
-                  <div key={p.id} onClick={()=>onSelectProp(p.id)}
+                  <div key={p.id} onClick={()=>handleSelectProp(p.id)}
                     style={{ padding:'13px 18px', display:'flex', alignItems:'center', gap:13, borderBottom:i<resto.length-1?`1px solid ${c.border}`:'none', cursor:'pointer', transition:'background 150ms', background: isSel ? c.surfaceAlt : 'transparent' }}
                     onMouseEnter={e=>{ if (!isSel) e.currentTarget.style.background=c.surfaceAlt; }}
                     onMouseLeave={e=>{ if (!isSel) e.currentTarget.style.background='transparent'; }}>
@@ -2327,7 +2502,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
             {limitReached && <span style={{ opacity:0.7, marginLeft:6 }}>· máximo alcanzado</span>}
           </div>
           <button
-            onClick={()=>setComparadorAbierto(true)}
+            onClick={abrirComparador}
             disabled={seleccionadas.length < 2}
             style={{
               background: seleccionadas.length >= 2 ? c.accent : '#555',
@@ -2363,8 +2538,25 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
 // DESCARTADAS
 // ============================================================
 
-const DescartadasView = ({ propiedades, isAdmin, onRecuperar, onSelectProp }) => {
-  const desc = propiedades.filter(p => p.estado==='Descartada' || !cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos));
+const DescartadasView = ({ propiedades, config, isAdmin, onRecuperar, onSelectProp }) => {
+  const desc = propiedades.filter(p =>
+    p.estado === 'Descartada' || !cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos)
+  );
+  const getMotivos = (prop) => {
+    const motivos = [];
+    if (prop.estado === 'Descartada') motivos.push('Marcada como descartada');
+    if (!cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos)) {
+      const activos = config?.excluyentesActivos || EXCLUYENTES_DEFAULT;
+      const nosCumple = EXCLUYENTES_DISPONIBLES.filter(e =>
+        activos.includes(e.id) && e.id !== 'cochera' && prop.excluyentes?.[e.id] !== true
+      ).map(e => e.label);
+      if (activos.includes('cochera') && prop.cochera !== true) nosCumple.push('Cochera');
+      const minAmb = config?.ambientesMinimos || 0;
+      if (minAmb > 0 && prop.ambientes && prop.ambientes < minAmb) nosCumple.push(`Mínimo ${minAmb} ambientes`);
+      if (nosCumple.length > 0) motivos.push(`No cumple: ${nosCumple.join(', ')}`);
+    }
+    return motivos;
+  };
   return (
     <div style={{ maxWidth:880, margin:'0 auto', padding:'30px 24px 64px' }}>
       <Hero eyebrow="Filtradas o marcadas" titulo="Descartadas" subtitulo='Propiedades con estado "Descartada" o que no cumplen los excluyentes' />
@@ -2377,13 +2569,17 @@ const DescartadasView = ({ propiedades, isAdmin, onRecuperar, onSelectProp }) =>
       ) : (
         <Card>
           {desc.map((p, i) => {
-            const motivo = p.estado==='Descartada' ? 'Marcada como descartada' : `No cumple: ${EXCLUYENTES.filter(e=>!p.excluyentes?.[e.id]).map(e=>e.label).join(', ')}`;
+            const motivos = getMotivos(p);
             return (
               <div key={p.id} style={{ padding:'15px 18px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, borderBottom:i<desc.length-1?`1px solid ${c.border}`:'none' }}>
                 <div style={{ flex:1, cursor:'pointer', minWidth:0 }} onClick={()=>onSelectProp(p.id)}>
                   <div style={{ fontWeight:600, marginBottom:3, fontSize:14 }}>{p.nombre||'Sin nombre'}</div>
                   <div style={{ fontSize:12, color:c.textMuted, marginBottom:5 }}>{p.zona} · {fmtUSD(p.precioPedido)}</div>
-                  <div style={{ fontSize:12, color:c.red, display:'flex', alignItems:'center', gap:4 }}><AlertCircle size={11} /> {motivo}</div>
+                  {motivos.map((m, mi) => (
+                    <div key={mi} style={{ fontSize:12, color:c.red, display:'flex', alignItems:'center', gap:4, marginBottom: mi < motivos.length-1 ? 3 : 0 }}>
+                      <AlertCircle size={11} /> {m}
+                    </div>
+                  ))}
                 </div>
                 {isAdmin && p.estado==='Descartada' && <Button size="sm" variant="secondary" onClick={()=>onRecuperar(p.id)}>Recuperar</Button>}
               </div>
@@ -2777,30 +2973,35 @@ export default function App() {
   const [showGuia, setShowGuia] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
+  const [showMigracion, setShowMigracion] = useState(false);
+  const [migracionDisponible, setMigracionDisponible] = useState(false);
 
-  const isAdmin = userDoc?.rol === 'admin' && userDoc?.estado === 'aprobado';
-  const isApproved = userDoc?.estado === 'aprobado';
+  const isAdmin = true; // sandbox por usuario: cada uno es admin de su propia data
+  const isApproved = true; // sandbox por usuario: entrada directa, sin aprobación
 
   // 1. Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        const userRef = doc(db, 'usuarios', user.uid);
+        const userRef = doc(db, 'users', user.uid);
         const snap = await getDoc(userRef);
         if (!snap.exists()) {
-          const esSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
-          const nuevoDoc = {
+          await setDoc(userRef, {
             email: user.email,
             displayName: user.displayName || user.email.split('@')[0],
-            rol: esSuperAdmin ? 'admin' : 'invitado',
-            estado: esSuperAdmin ? 'aprobado' : 'pendiente',
+            onboardingVisto: false,
             createdAt: new Date().toISOString(),
-          };
-          await setDoc(userRef, nuevoDoc);
-          setUserDoc({ id: user.uid, ...nuevoDoc });
-        } else {
-          setUserDoc({ id: user.uid, ...snap.data() });
+          });
+        }
+        setUserDoc({ id: user.uid, email: user.email, displayName: user.displayName });
+        await trackLogin(user.uid, user.email, user.displayName || user.email.split('@')[0]);
+        if (user.email === SUPER_ADMIN_EMAIL) {
+          try {
+            const viejasSnap = await getDocs(collection(db, 'propiedades'));
+            const nuevasSnap = await getDocs(collection(db, 'users', user.uid, 'propiedades'));
+            if (viejasSnap.docs.length > 0 && nuevasSnap.docs.length === 0) setMigracionDisponible(true);
+          } catch { /* ignore */ }
         }
       } else {
         setUserDoc(null);
@@ -2816,18 +3017,20 @@ export default function App() {
     setDataLoading(true);
     const unsubs = [];
 
-    unsubs.push(onSnapshot(collection(db, 'propiedades'), (snap) => {
-      setPropiedades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    unsubs.push(onSnapshot(collection(db, 'users', firebaseUser.uid, 'propiedades'), (snap) => {
+      const props = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setPropiedades(props);
+      trackStatsSnapshot(firebaseUser.uid, props);
     }));
 
-    unsubs.push(onSnapshot(doc(db, 'config', 'main'), async (snap) => {
+    unsubs.push(onSnapshot(doc(db, 'users', firebaseUser.uid, 'config', 'main'), async (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         if (data.criterios) {
           // Si los criterios guardados no tienen campo 'tipo', son del sistema viejo → migrar
           const necesitaMigrar = data.criterios.some(cr => !cr.tipo);
-          if (necesitaMigrar && isAdmin) {
-            await updateDoc(doc(db, 'config', 'main'), { criterios: CRITERIOS_DEFAULT });
+          if (necesitaMigrar) {
+            await updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { criterios: CRITERIOS_DEFAULT });
             setCriterios(CRITERIOS_DEFAULT);
           } else {
             setCriterios(data.criterios);
@@ -2839,40 +3042,29 @@ export default function App() {
           // Migrar: si no tiene excluyentesActivos, agregar el default
           if (!cfg.excluyentesActivos) {
             cfg.excluyentesActivos = EXCLUYENTES_DEFAULT;
-            if (isAdmin) await updateDoc(doc(db, 'config', 'main'), { 'configuracion.excluyentesActivos': EXCLUYENTES_DEFAULT });
+            await updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { 'configuracion.excluyentesActivos': EXCLUYENTES_DEFAULT });
           }
           // Migrar: sacar ambientes3 si estaba en excluyentesActivos
           if (cfg.excluyentesActivos.includes('ambientes3')) {
             cfg.excluyentesActivos = cfg.excluyentesActivos.filter(id => id !== 'ambientes3');
-            if (isAdmin) await updateDoc(doc(db, 'config', 'main'), { 'configuracion.excluyentesActivos': cfg.excluyentesActivos });
+            await updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { 'configuracion.excluyentesActivos': cfg.excluyentesActivos });
           }
           if (cfg.ambientesMinimos == null) cfg.ambientesMinimos = 0;
           setConfig(cfg);
         }
       } else {
-        if (isAdmin) {
-          await setDoc(doc(db, 'config', 'main'), {
-            criterios: CRITERIOS_DEFAULT,
-            presupuesto: { ventaMin:167000, ventaMax:185000, ahorros:45000, aportes:70000, objetivo:250000 },
-            configuracion: { comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 },
-          });
-        }
+        await setDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), {
+          criterios: CRITERIOS_DEFAULT,
+          presupuesto: { ventaMin:0, ventaMax:0, ahorros:0, aportes:0, objetivo:0 },
+          configuracion: { comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:EXCLUYENTES_DEFAULT, ambientesMinimos:0 },
+        });
       }
       setDataLoading(false);
     }));
 
-    if (isAdmin) {
-      unsubs.push(onSnapshot(collection(db, 'usuarios'), (snap) => {
-        setUsuarios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }));
-
-      // Chequear si el admin ya vio el onboarding
-      getDoc(doc(db, 'usuarios', firebaseUser.uid)).then(snap => {
-        if (snap.exists() && !snap.data().onboardingVisto) {
-          setShowOnboarding(true);
-        }
-      });
-    }
+    getDoc(doc(db, 'users', firebaseUser.uid)).then(snap => {
+      if (snap.exists() && !snap.data().onboardingVisto) setShowOnboarding(true);
+    });
 
     return () => unsubs.forEach(u => u());
   }, [isApproved, isAdmin]);
@@ -2881,7 +3073,8 @@ export default function App() {
   const handleCerrarOnboarding = async () => {
     setShowOnboarding(false);
     if (firebaseUser) {
-      await updateDoc(doc(db, 'usuarios', firebaseUser.uid), { onboardingVisto: true });
+      await updateDoc(doc(db, 'users', firebaseUser.uid), { onboardingVisto: true });
+      await updateDoc(doc(db, 'users', firebaseUser.uid, 'stats', 'main'), { onboardingCompleto: true, ultimaActualizacion: new Date().toISOString() }).catch(() => {});
     }
   };
 
@@ -2902,34 +3095,22 @@ export default function App() {
     setSelectedId(null);
   };
 
-  // Usuarios handlers
-  const onAprobarUsuario = async (uid, rol) => {
-    await updateDoc(doc(db, 'usuarios', uid), { estado: 'aprobado', rol });
-  };
-  const onRechazarUsuario = async (uid) => {
-    if (!confirm('¿Rechazar a este usuario? No va a poder entrar.')) return;
-    await deleteDoc(doc(db, 'usuarios', uid));
-  };
-  const onCambiarRol = async (uid, rol) => {
-    await updateDoc(doc(db, 'usuarios', uid), { rol });
-  };
-  const onEliminarUsuario = async (uid) => {
-    if (!confirm('¿Eliminar este usuario? Pierde el acceso.')) return;
-    await deleteDoc(doc(db, 'usuarios', uid));
-  };
+  // Usuarios handlers eliminados — sandbox por usuario, sin aprobación
 
   // Propiedades handlers
   const onNuevaProp = useCallback(async () => {
+    if (!firebaseUser) return;
     const nueva = { nombre:'Nueva propiedad', estado:'Para visitar', excluyentes:{}, puntajes:{}, favorita:false, gastosPct:2, createdAt: new Date().toISOString() };
-    const ref = await addDoc(collection(db, 'propiedades'), nueva);
+    const ref = await addDoc(collection(db, 'users', firebaseUser.uid, 'propiedades'), nueva);
+    trackEvent(firebaseUser.uid, 'propiedadesCreadas');
     setSelectedId(ref.id);
-  }, []);
+  }, [firebaseUser]);
 
   const onDelete = useCallback(async () => {
     if (!confirm('¿Eliminar esta propiedad?')) return;
-    await deleteDoc(doc(db, 'propiedades', selectedId));
+    await deleteDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', selectedId));
     setSelectedId(null);
-  }, [selectedId]);
+  }, [firebaseUser, selectedId]);
 
   const setPropActual = useCallback((updater) => {
     setPropiedades(prev => {
@@ -2937,39 +3118,41 @@ export default function App() {
       if (!prop) return prev;
       const nuevoProp = typeof updater === 'function' ? updater(prop) : updater;
       const { id, ...data } = nuevoProp;
-      updateDoc(doc(db, 'propiedades', selectedId), data).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', selectedId), data).catch(console.error);
       return prev.map(p => p.id === selectedId ? nuevoProp : p);
     });
-  }, [selectedId]);
+  }, [firebaseUser, selectedId]);
 
   const onRecuperar = useCallback(async (id) => {
-    await updateDoc(doc(db, 'propiedades', id), { estado: 'Para visitar' });
-  }, []);
+    await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { estado: 'Para visitar' });
+  }, [firebaseUser]);
 
   // Config/criterios/presupuesto handlers (guardan en Firestore)
   const setCriteriosFirestore = useCallback((updater) => {
     setCriterios(prev => {
       const nuevos = typeof updater === 'function' ? updater(prev) : updater;
-      updateDoc(doc(db, 'config', 'main'), { criterios: nuevos }).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { criterios: nuevos }).catch(console.error);
+      trackEvent(firebaseUser.uid, 'criteriosEditados');
       return nuevos;
     });
-  }, []);
+  }, [firebaseUser]);
 
   const setPresupuestoFirestore = useCallback((updater) => {
     setPresupuesto(prev => {
       const nuevo = typeof updater === 'function' ? updater(prev) : updater;
-      updateDoc(doc(db, 'config', 'main'), { presupuesto: nuevo }).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { presupuesto: nuevo }).catch(console.error);
+      trackEvent(firebaseUser.uid, 'presupuestoEditado');
       return nuevo;
     });
-  }, []);
+  }, [firebaseUser]);
 
   const setConfigFirestore = useCallback((updater) => {
     setConfig(prev => {
       const nuevo = typeof updater === 'function' ? updater(prev) : updater;
-      updateDoc(doc(db, 'config', 'main'), { configuracion: nuevo }).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { configuracion: nuevo }).catch(console.error);
       return nuevo;
     });
-  }, []);
+  }, [firebaseUser]);
 
   useEffect(() => { if (!isAdmin && (view === 'presupuesto' || view === 'configuracion')) setView('lista'); }, [isAdmin, view]);
 
@@ -2984,6 +3167,7 @@ export default function App() {
   const pendientes = usuarios.filter(u => u.estado === 'pendiente').length;
 
   return (
+    <UserContext.Provider value={{ uid: firebaseUser?.uid }}>
     <div style={{ minHeight:'100vh', background:c.bg, fontFamily:FONT, color:c.text }}>
       <NavBar
         view={view}
@@ -2993,21 +3177,11 @@ export default function App() {
         propiedades={propiedades}
         pendientes={pendientes}
         onLogout={handleLogout}
-        onAbrirGestionUsuarios={() => setShowGestion(true)}
         onAbrirGuia={() => setShowGuia(true)}
+        onAbrirMigracion={() => setShowMigracion(true)}
+        migracionDisponible={migracionDisponible}
       />
-
-      {showGestion && (
-        <GestionUsuariosModal
-          usuarios={usuarios}
-          currentUser={firebaseUser}
-          onAprobar={onAprobarUsuario}
-          onRechazar={onRechazarUsuario}
-          onCambiarRol={onCambiarRol}
-          onEliminar={onEliminarUsuario}
-          onClose={() => setShowGestion(false)}
-        />
-      )}
+      {showMigracion && <MigracionModal uid={firebaseUser.uid} onClose={() => setShowMigracion(false)} />}
 
       {showOnboarding && <OnboardingModal onClose={handleCerrarOnboarding} />}
       {showGuia && <GuiaModal onClose={() => setShowGuia(false)} />}
@@ -3028,7 +3202,7 @@ export default function App() {
         <>
           {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} />}
           {view === 'ranking' && <RankingView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onSelectProp={setSelectedId} />}
-          {view === 'descartadas' && <DescartadasView propiedades={propiedades} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
+          {view === 'descartadas' && <DescartadasView propiedades={propiedades} config={config} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
           {view === 'pesos' && <PesosView criterios={criterios} setCriterios={setCriteriosFirestore} isAdmin={isAdmin} />}
           {view === 'presupuesto' && (isAdmin ? <PresupuestoView presupuesto={presupuesto} setPresupuesto={setPresupuestoFirestore} /> : <AccesoDenegadoView />)}
           {view === 'configuracion' && (isAdmin ? <ConfiguracionView config={config} setConfig={setConfigFirestore} criterios={criterios} /> : <AccesoDenegadoView />)}
@@ -3038,5 +3212,6 @@ export default function App() {
         <span style={{ fontSize:12, color:c.textSubtle, fontStyle:'italic' }}>Buscás en Zonaprop, decidís en Valora.</span>
       </div>
     </div>
+    </UserContext.Provider>
   );
 }
