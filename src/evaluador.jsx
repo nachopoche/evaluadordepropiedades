@@ -1769,6 +1769,10 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
               <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
               {prop.favorita ? 'Favorita' : 'Marcar favorita'}
             </Button>
+            {prop.estado !== 'Descartada'
+              ? <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Descartada'); onBack(); }}><X size={13} /> Descartar</Button>
+              : <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Para visitar'); onBack(); }}>Recuperar</Button>
+            }
             <Button variant="danger" size="sm" onClick={onDelete}><Trash2 size={13} /></Button>
           </div>
         )}
@@ -3107,7 +3111,7 @@ export default function App() {
   }, [firebaseUser]);
 
   const onDelete = useCallback(async () => {
-    if (!confirm('¿Eliminar esta propiedad?')) return;
+    if (!confirm('¿Eliminar esta propiedad? Esta acción no se puede deshacer.')) return;
     await deleteDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', selectedId));
     setSelectedId(null);
   }, [firebaseUser, selectedId]);
@@ -3132,6 +3136,7 @@ export default function App() {
     setCriterios(prev => {
       const nuevos = typeof updater === 'function' ? updater(prev) : updater;
       updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { criterios: nuevos }).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'stats', 'main'), { criteriosConfigurados: true, ultimaActualizacion: new Date().toISOString() }).catch(console.error);
       trackEvent(firebaseUser.uid, 'criteriosEditados');
       return nuevos;
     });
@@ -3141,6 +3146,7 @@ export default function App() {
     setPresupuesto(prev => {
       const nuevo = typeof updater === 'function' ? updater(prev) : updater;
       updateDoc(doc(db, 'users', firebaseUser.uid, 'config', 'main'), { presupuesto: nuevo }).catch(console.error);
+      updateDoc(doc(db, 'users', firebaseUser.uid, 'stats', 'main'), { presupuestoConfigurado: true, ultimaActualizacion: new Date().toISOString() }).catch(console.error);
       trackEvent(firebaseUser.uid, 'presupuestoEditado');
       return nuevo;
     });
