@@ -1098,6 +1098,32 @@ const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, chi
 
 
 // ============================================================
+// MINI LINE CHART (SVG puro, sin librerías)
+// ============================================================
+
+const MiniLineChart = ({ data, lineColor, areaColor, dotColors }) => {
+  if (!data || data.length < 2) return null;
+  const W = 400, H = 110, px = 12, py = 14;
+  const vals = data.map(d => d.v);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const spread = maxV - minV || maxV * 0.1 || 1;
+  const xi = i => px + (i / (data.length - 1)) * (W - 2 * px);
+  const yi = v => py + (1 - (v - minV) / spread) * (H - 2 * py);
+  const pts = data.map((d, i) => [xi(i), yi(d.v)]);
+  const linePts = pts.map(p => p.join(',')).join(' ');
+  const areaD = `M${pts[0][0]},${pts[0][1]} ${pts.map(p=>`L${p[0]},${p[1]}`).join(' ')} L${pts[pts.length-1][0]},${H-py} L${pts[0][0]},${H-py}Z`;
+  return (
+    <svg width="100%" height="110" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display:'block', margin:'10px 0' }}>
+      <path d={areaD} fill={areaColor} opacity="0.3" />
+      <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map(([cx, cy], i) => (
+        <circle key={i} cx={cx} cy={cy} r="5" fill={dotColors?.[i] ?? lineColor} stroke="white" strokeWidth="2" />
+      ))}
+    </svg>
+  );
+};
+
+// ============================================================
 // SEMÁFORO DE DEMANDA
 // ============================================================
 
@@ -1159,17 +1185,34 @@ const SemaforoDemanda = ({ prop, update }) => {
         </div>
       )}
 
+      {/* Gráfico */}
+      {historial.length >= 2 && (
+        <MiniLineChart
+          data={historial.map(r => ({ v: r.views }))}
+          lineColor={c.accent}
+          areaColor={c.accentSoft}
+        />
+      )}
+
       {/* Historial */}
       {historial.length > 0 && (
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:11, fontWeight:600, color:c.textMuted, marginBottom:8 }}>Historial de views</div>
-          {historial.map((r, i) => (
-            <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:`1px solid ${c.border}` }}>
-              <span style={{ fontSize:12, color:c.textMuted, minWidth:90 }}>{r.fecha}</span>
-              <span style={{ fontSize:13, fontWeight:500 }}>{r.views.toLocaleString('es-AR')} views</span>
-              <button onClick={()=>eliminarRegistro(i)} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:2, marginLeft:'auto' }}><X size={13} /></button>
-            </div>
-          ))}
+          {historial.map((r, i) => {
+            const delta = i > 0 ? r.views - historial[i-1].views : null;
+            return (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:`1px solid ${c.border}` }}>
+                <span style={{ fontSize:12, color:c.textMuted, minWidth:90 }}>{r.fecha}</span>
+                <span style={{ fontSize:13, fontWeight:500 }}>{r.views.toLocaleString('es-AR')} views</span>
+                {delta != null && (
+                  <span style={{ fontSize:11, color: delta > 0 ? c.green : delta < 0 ? c.red : c.textSubtle }}>
+                    {delta > 0 ? '+' : ''}{delta.toLocaleString('es-AR')}
+                  </span>
+                )}
+                <button onClick={()=>eliminarRegistro(i)} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:2, marginLeft:'auto' }}><X size={13} /></button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1715,6 +1758,12 @@ const HistorialPrecio = ({ prop, update }) => {
     if (diff < 0) bajada = { diff: Math.abs(diff), pct: Math.abs(pct) };
   }
 
+  // Colores de puntos según dirección del precio
+  const dotColors = historial.map((r, i) => {
+    if (i === 0) return c.textMuted;
+    return r.precio < historial[i-1].precio ? c.green : r.precio > historial[i-1].precio ? c.red : c.textMuted;
+  });
+
   return (
     <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
       <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Historial de precio</div>
@@ -1723,6 +1772,16 @@ const HistorialPrecio = ({ prop, update }) => {
         <div style={{ marginBottom:12, padding:'10px 14px', background:c.greenSoft, borderRadius:10, fontSize:13, color:c.green, fontWeight:500 }}>
           📉 Bajó {fmtUSD(bajada.diff)} ({bajada.pct}%) desde la publicación
         </div>
+      )}
+
+      {/* Gráfico */}
+      {historial.length >= 2 && (
+        <MiniLineChart
+          data={historial.map(r => ({ v: r.precio }))}
+          lineColor={c.textMuted}
+          areaColor={c.borderStrong}
+          dotColors={dotColors}
+        />
       )}
 
       {historial.length > 0 && (
