@@ -21,6 +21,26 @@ const ZONAS = [
 ];
 
 const TIPOS = ['PH','Casa','Departamento','Otro'];
+
+// PRECIOS_BARRIO_USADO — Zonaprop mayo 2026, columna "Usado" (USD/m², publicación)
+// Fuente: zonaprop.com.ar/blog/zpindex/ — actualizar mensualmente
+const PRECIOS_BARRIO_USADO = {
+  'Puerto Madero':5908,'Palermo':3051,'Núñez':2883,'Belgrano':2815,
+  'Colegiales':2610,'Recoleta':2616,'Chacarita':2600,'Coghlan':2583,
+  'Villa Urquiza':2579,'Saavedra':2529,'Retiro':2512,'Villa Ortúzar':2470,
+  'Villa Devoto':2440,'Parque Chas':2371,'Villa Pueyrredón':2234,
+  'Villa Crespo':2214,'Caballito':2181,'Villa del Parque':2123,
+  'Agronomía':2108,'Parque Chacabuco':2060,'Almagro':2034,
+  'Villa Santa Rita':2027,'Monte Castro':1985,'Villa Luro':1982,
+  'Paternal':1923,'San Telmo':1906,'Boedo':1883,'Barracas':1833,
+  'Villa General Mitre':1828,'Liniers':1851,'Flores':1789,'Mataderos':1754,
+  'San Cristóbal':1753,'Villa Real':1733,'Versalles':1730,'Monserrat':1726,
+  'San Nicolás':1746,'Vélez Sarsfield':1670,'Balvanera':1657,
+  'Floresta':1612,'Parque Patricios':1598,'Constitución':1510,
+  'Parque Avellaneda':1459,'La Boca':1472,'Villa Riachuelo':1407,
+  'Nueva Pompeya':1272,'Villa Lugano':963,
+};
+
 const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
 const DISPOSICIONES = ['Frente','Contrafrente','Interior','Lateral'];
 const ANUNCIANTES = ['Inmobiliaria','Dueño directo'];
@@ -1844,7 +1864,14 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
               }}
             />
           </Field>
-          <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>update('zona',v)} options={ZONAS} /></Field>
+          <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>{
+            const precioNuevo = PRECIOS_BARRIO_USADO[v];
+            const precioAnterior = PRECIOS_BARRIO_USADO[prop.zona];
+            update('zona', v);
+            if (precioNuevo && (!prop.promedioBarrio || Number(prop.promedioBarrio) === precioAnterior)) {
+              update('promedioBarrio', precioNuevo);
+            }
+          }} options={ZONAS} /></Field>
           <Field label="Tipo de propiedad"><Select value={prop.tipo} onChange={v=>update('tipo',v)} options={TIPOS} /></Field>
           <Field label="Subtipo"><Select value={prop.subtipo} onChange={v=>update('subtipo',v)} options={SUBTIPOS} /></Field>
           <Field label="Disposición"><Select value={prop.disposicion} onChange={v=>update('disposicion',v)} options={DISPOSICIONES} /></Field>
@@ -1923,7 +1950,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
-          <Field label="Promedio del barrio (USD/m²)"><TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} /></Field>
+          <Field label="Promedio del barrio (USD/m²)" hint={PRECIOS_BARRIO_USADO[prop.zona] ? `Zonaprop used. may-2026 · editable` : undefined}><TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} /></Field>
         </div>
         {isAdmin && (
           <>
