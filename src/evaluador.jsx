@@ -1950,7 +1950,14 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
-          <Field label="Promedio del barrio (USD/m²)" hint={PRECIOS_BARRIO_USADO[prop.zona] ? `Zonaprop used. may-2026 · editable` : undefined}><TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} /></Field>
+          <Field label="Promedio del barrio (USD/m²)" hint={PRECIOS_BARRIO_USADO[prop.zona] ? 'Índice Zonaprop · may. 2026' : undefined}>
+            {PRECIOS_BARRIO_USADO[prop.zona]
+              ? <div style={{ fontSize:15, fontWeight:600, padding:'9px 12px', background:c.surfaceAlt, borderRadius:8, border:`1px solid ${c.border}`, color:c.text }}>
+                  USD {PRECIOS_BARRIO_USADO[prop.zona].toLocaleString('es-AR')}
+                </div>
+              : <TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} />
+            }
+          </Field>
         </div>
         {isAdmin && (
           <>
