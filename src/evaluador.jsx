@@ -854,7 +854,7 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
   const eColor = prop.estado==='Visitada'?c.green : (prop.estado==='Oferta hecha'||prop.estado==='En negociación')?c.purple : prop.estado==='Descartada'?c.red : c.amber;
 
   return (
-    <Card hoverable onClick={onClick} style={{ opacity:(prop.estado==='Descartada'||!cumple)?0.55:1 }}>
+    <Card hoverable onClick={onClick} style={{ opacity:!cumple ? 0.55 : 1 }}>
       <div style={{ height:140, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
         {prop.fotos?.[0]
           ? <img src={prop.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
@@ -959,6 +959,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   const { uid } = useUser();
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
+    if (p.estado === 'Descartada') return false;
     if (filtros.zona && p.zona !== filtros.zona) return false;
     if (filtros.estado && p.estado !== filtros.estado) return false;
     if (filtros.busqueda) {
@@ -970,7 +971,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   }).sort((a,b) => calcularPuntaje(b.puntajes,criterios) - calcularPuntaje(a.puntajes,criterios)), [propiedades, criterios, filtros, isAdmin, config]);
 
   const zonas = useMemo(() => {
-    const ct={}; propiedades.forEach(p => { if(p.zona) ct[p.zona]=(ct[p.zona]||0)+1; });
+    const ct={}; propiedades.filter(p => p.estado !== 'Descartada').forEach(p => { if(p.zona) ct[p.zona]=(ct[p.zona]||0)+1; });
     return Object.entries(ct).sort((a,b) => b[1]-a[1]);
   }, [propiedades]);
 
@@ -983,12 +984,17 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
 
   return (
     <div style={{ maxWidth:1240, margin:'0 auto', padding:'30px 24px 64px' }}>
-      <Hero
-        eyebrow={`${propiedades.length} ${propiedades.length===1?'propiedad':'propiedades'}${favs>0?` · ${favs} ${favs===1?'favorita':'favoritas'}`:''}`}
-        titulo={propiedades.length===0 ? 'Empezá tu búsqueda' : 'Búsqueda activa'}
-        subtitulo={`${filtradas.length} ${filtradas.length===1?'resultado':'resultados'}${propiedades.length!==filtradas.length?` de ${propiedades.length}`:''} · ordenadas por puntaje`}
-        action={isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={16} /> Nueva propiedad</Button>}
-      />
+      {(() => {
+        const activas = propiedades.filter(p => p.estado !== 'Descartada');
+        return (
+          <Hero
+            eyebrow={`${activas.length} ${activas.length===1?'propiedad':'propiedades'}${favs>0?` · ${favs} ${favs===1?'favorita':'favoritas'}`:''}`}
+            titulo={activas.length===0 ? 'Empezá tu búsqueda' : 'Búsqueda activa'}
+            subtitulo={`${filtradas.length} ${filtradas.length===1?'resultado':'resultados'}${activas.length!==filtradas.length?` de ${activas.length}`:''} · ordenadas por puntaje`}
+            action={isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={16} /> Nueva propiedad</Button>}
+          />
+        );
+      })()}
 
       {isAdmin && propiedades.length > 0 && <StatsAdmin presupuesto={presupuesto} config={config} topProp={topProp} />}
 
@@ -2543,52 +2549,27 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
 // ============================================================
 
 const DescartadasView = ({ propiedades, config, isAdmin, onRecuperar, onSelectProp }) => {
-  const desc = propiedades.filter(p =>
-    p.estado === 'Descartada' || !cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos)
-  );
-  const getMotivos = (prop) => {
-    const motivos = [];
-    if (prop.estado === 'Descartada') motivos.push('Marcada como descartada');
-    if (!cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos)) {
-      const activos = config?.excluyentesActivos || EXCLUYENTES_DEFAULT;
-      const nosCumple = EXCLUYENTES_DISPONIBLES.filter(e =>
-        activos.includes(e.id) && e.id !== 'cochera' && prop.excluyentes?.[e.id] !== true
-      ).map(e => e.label);
-      if (activos.includes('cochera') && prop.cochera !== true) nosCumple.push('Cochera');
-      const minAmb = config?.ambientesMinimos || 0;
-      if (minAmb > 0 && prop.ambientes && prop.ambientes < minAmb) nosCumple.push(`Mínimo ${minAmb} ambientes`);
-      if (nosCumple.length > 0) motivos.push(`No cumple: ${nosCumple.join(', ')}`);
-    }
-    return motivos;
-  };
+  const desc = propiedades.filter(p => p.estado === 'Descartada');
   return (
     <div style={{ maxWidth:880, margin:'0 auto', padding:'30px 24px 64px' }}>
-      <Hero eyebrow="Filtradas o marcadas" titulo="Descartadas" subtitulo='Propiedades con estado "Descartada" o que no cumplen los excluyentes' />
+      <Hero eyebrow="Descartadas por vos" titulo="Descartadas" subtitulo="Propiedades que marcaste como descartadas · podés recuperarlas cuando quieras" />
       {desc.length === 0 ? (
         <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
           <X size={28} style={{ color:c.textMuted, marginBottom:10 }} />
           <h3 style={{ margin:'0 0 7px', fontSize:16, fontWeight:600 }}>Sin descartadas</h3>
-          <p style={{ margin:0, fontSize:14, color:c.textMuted }}>No hay propiedades descartadas todavía.</p>
+          <p style={{ margin:0, fontSize:14, color:c.textMuted }}>No descartaste ninguna propiedad todavía.</p>
         </Card>
       ) : (
         <Card>
-          {desc.map((p, i) => {
-            const motivos = getMotivos(p);
-            return (
-              <div key={p.id} style={{ padding:'15px 18px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, borderBottom:i<desc.length-1?`1px solid ${c.border}`:'none' }}>
-                <div style={{ flex:1, cursor:'pointer', minWidth:0 }} onClick={()=>onSelectProp(p.id)}>
-                  <div style={{ fontWeight:600, marginBottom:3, fontSize:14 }}>{p.nombre||'Sin nombre'}</div>
-                  <div style={{ fontSize:12, color:c.textMuted, marginBottom:5 }}>{p.zona} · {fmtUSD(p.precioPedido)}</div>
-                  {motivos.map((m, mi) => (
-                    <div key={mi} style={{ fontSize:12, color:c.red, display:'flex', alignItems:'center', gap:4, marginBottom: mi < motivos.length-1 ? 3 : 0 }}>
-                      <AlertCircle size={11} /> {m}
-                    </div>
-                  ))}
-                </div>
-                {isAdmin && p.estado==='Descartada' && <Button size="sm" variant="secondary" onClick={()=>onRecuperar(p.id)}>Recuperar</Button>}
+          {desc.map((p, i) => (
+            <div key={p.id} style={{ padding:'15px 18px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, borderBottom:i<desc.length-1?`1px solid ${c.border}`:'none' }}>
+              <div style={{ flex:1, cursor:'pointer', minWidth:0 }} onClick={()=>onSelectProp(p.id)}>
+                <div style={{ fontWeight:600, marginBottom:3, fontSize:14 }}>{p.nombre||'Sin nombre'}</div>
+                <div style={{ fontSize:12, color:c.textMuted }}>{p.zona} · {fmtUSD(p.precioPedido)}</div>
               </div>
-            );
-          })}
+              {isAdmin && <Button size="sm" variant="secondary" onClick={()=>onRecuperar(p.id)}>Recuperar</Button>}
+            </div>
+          ))}
         </Card>
       )}
     </div>
