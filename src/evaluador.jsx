@@ -1033,6 +1033,51 @@ const StatsAdmin = ({ presupuesto, config, topProp }) => {
 };
 
 // ============================================================
+// FILTRO DROPDOWN
+// ============================================================
+
+const FiltroDropdown = ({ label, options, selected, onToggle, onClear }) => {
+  const [open, setOpen] = useState(false);
+  const hasActive = selected.length > 0;
+  return (
+    <div style={{ position:'relative' }}>
+      {open && <div onClick={()=>setOpen(false)} style={{ position:'fixed', inset:0, zIndex:49 }} />}
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', border:`1px solid ${hasActive?c.text:c.borderStrong}`, borderRadius:20, background:hasActive?c.text:'transparent', color:hasActive?'white':c.text, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:FONT, transition:'all 150ms', whiteSpace:'nowrap' }}>
+        {label}
+        {hasActive && <span style={{ background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 6px', fontSize:11, fontWeight:700 }}>{selected.length}</span>}
+        <ChevronDown size={13} style={{ opacity:0.6, transform:open?'rotate(180deg)':'none', transition:'transform 150ms' }} />
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 8px 24px rgba(30,45,74,0.12)', padding:8, zIndex:50, minWidth:200, maxHeight:300, overflowY:'auto' }}>
+          {options.map(opt => {
+            const active = selected.includes(opt.value);
+            return (
+              <button key={opt.value} onClick={()=>onToggle(opt.value)}
+                style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, width:'100%', padding:'8px 10px', background:active?c.surfaceAlt:'transparent', border:'none', borderRadius:8, cursor:'pointer', fontFamily:FONT, textAlign:'left', fontSize:13 }}>
+                <span style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${active?c.accent:c.border}`, background:active?c.accent:'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    {active && <Check size={10} color="white" strokeWidth={3} />}
+                  </div>
+                  <span style={{ color:c.text }}>{opt.label}</span>
+                </span>
+                {opt.count !== undefined && <span style={{ fontSize:11, color:c.textMuted }}>{opt.count}</span>}
+              </button>
+            );
+          })}
+          {hasActive && (
+            <button onClick={()=>{ onClear(); setOpen(false); }}
+              style={{ display:'flex', alignItems:'center', gap:4, width:'100%', padding:'7px 10px', background:'transparent', border:'none', borderTop:`1px solid ${c.border}`, marginTop:4, cursor:'pointer', fontSize:12, color:c.textMuted, fontFamily:FONT }}>
+              <X size={11} /> Limpiar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
 // LISTA VIEW
 // ============================================================
 
@@ -1042,8 +1087,8 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
     if (p.estado === 'Descartada') return false;
-    if (filtros.zona && p.zona !== filtros.zona) return false;
-    if (filtros.estado && p.estado !== filtros.estado) return false;
+    if (filtros.zonas.length > 0 && !filtros.zonas.includes(p.zona)) return false;
+    if (filtros.estados.length > 0 && !filtros.estados.includes(p.estado)) return false;
     if (filtros.busqueda) {
       const q = filtros.busqueda.toLowerCase();
       if (!(p.nombre||'').toLowerCase().includes(q) && !(p.zona||'').toLowerCase().includes(q) && !(p.direccion||'').toLowerCase().includes(q)) return false;
@@ -1086,33 +1131,44 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
           <Search size={15} style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', color:c.textMuted }} />
           <input type="text" defaultValue={filtros.busqueda||''} onChange={e=>setFiltros(f=>({...f, busqueda:e.target.value}))} placeholder="Buscar por nombre, barrio o dirección..." style={{ ...iS, paddingLeft:38 }} />
         </div>
-        {zonas.length > 0 && (
-          <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:8 }}>
-            <Chip active={!filtros.zona} onClick={()=>setFiltros(f=>({...f, zona:''}))}>Todas</Chip>
-            {zonas.map(([z,n]) => <Chip key={z} active={filtros.zona===z} onClick={()=>setFiltros(f=>({...f, zona:f.zona===z?'':z}))}>{z} ({n})</Chip>)}
+        {zonas.length > 0 || true ? (
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+            {zonas.length > 0 && (
+              <FiltroDropdown
+                label="Barrio"
+                options={zonas.map(([z,n]) => ({ value:z, label:z, count:n }))}
+                selected={filtros.zonas}
+                onToggle={z => setFiltros(f => ({ ...f, zonas: f.zonas.includes(z) ? f.zonas.filter(x=>x!==z) : [...f.zonas, z] }))}
+                onClear={() => setFiltros(f => ({ ...f, zonas:[] }))}
+              />
+            )}
+            <FiltroDropdown
+              label="Estado"
+              options={ESTADOS.filter(e=>e!=='Descartada').map(e => ({ value:e, label:e }))}
+              selected={filtros.estados}
+              onToggle={e => setFiltros(f => ({ ...f, estados: f.estados.includes(e) ? f.estados.filter(x=>x!==e) : [...f.estados, e] }))}
+              onClear={() => setFiltros(f => ({ ...f, estados:[] }))}
+            />
+            <FiltroDropdown
+              label="Tipo"
+              options={TIPOS.map(t => ({ value:t, label:t }))}
+              selected={filtros.tipos}
+              onToggle={t => setFiltros(f => ({ ...f, tipos: f.tipos.includes(t) ? f.tipos.filter(x=>x!==t) : [...f.tipos, t] }))}
+              onClear={() => setFiltros(f => ({ ...f, tipos:[] }))}
+            />
+            {isAdmin && (
+              <Chip active={filtros.soloFavoritas} onClick={()=>setFiltros(f=>({...f, soloFavoritas:!f.soloFavoritas}))}>
+                <Heart size={10} fill={filtros.soloFavoritas?'white':'none'} /> Favoritas
+              </Chip>
+            )}
+            {(filtros.zonas.length > 0 || filtros.estados.length > 0 || filtros.tipos.length > 0 || filtros.soloFavoritas) && (
+              <button onClick={()=>setFiltros(f=>({...f, zonas:[], estados:[], tipos:[], soloFavoritas:false}))}
+                style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, fontSize:12, fontFamily:FONT, display:'flex', alignItems:'center', gap:4, padding:'4px 8px', borderRadius:8 }}>
+                <X size={12} /> Limpiar filtros
+              </button>
+            )}
           </div>
-        )}
-        <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
-          <Chip active={!filtros.estado} onClick={()=>setFiltros(f=>({...f, estado:''}))}>Cualquier estado</Chip>
-          {ESTADOS.filter(e=>e!=='Descartada').map(e => <Chip key={e} active={filtros.estado===e} onClick={()=>setFiltros(f=>({...f, estado:f.estado===e?'':e}))}>{e}</Chip>)}
-          {isAdmin && <Chip active={filtros.soloFavoritas} onClick={()=>setFiltros(f=>({...f, soloFavoritas:!f.soloFavoritas}))}><Heart size={10} fill={filtros.soloFavoritas?'white':'none'} /> Favoritas</Chip>}
-        </div>
-        <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginTop:8 }}>
-          {TIPOS.map(t => {
-            const activo = filtros.tipos.includes(t);
-            return (
-              <Chip key={t} active={activo} onClick={()=>setFiltros(f=>({
-                ...f,
-                tipos: activo ? f.tipos.filter(x=>x!==t) : [...f.tipos, t]
-              }))}>{t}</Chip>
-            );
-          })}
-          {filtros.tipos.length > 0 && (
-            <Chip active={false} onClick={()=>setFiltros(f=>({...f, tipos:[]}))}>
-              <X size={10} /> Limpiar tipo
-            </Chip>
-          )}
-        </div>
+        ) : null}
       </div>
 
       {filtradas.length === 0 ? (
@@ -3194,7 +3250,7 @@ export default function App() {
   const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 });
   const [usuarios, setUsuarios] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false, tipos:[] });
+  const [filtros, setFiltros] = useState({ zonas:[], estados:[], busqueda:'', soloFavoritas:false, tipos:[] });
   const [showGestion, setShowGestion] = useState(false);
   const [showGuia, setShowGuia] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
