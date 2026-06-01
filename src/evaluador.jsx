@@ -1185,14 +1185,27 @@ const SemaforoDemanda = ({ prop, update }) => {
         </div>
       )}
 
-      {/* Gráfico */}
-      {historial.length >= 2 && (
-        <MiniLineChart
-          data={historial.map(r => ({ v: r.views }))}
-          lineColor={c.accent}
-          areaColor={c.accentSoft}
-        />
-      )}
+      {/* Velocidad de demanda */}
+      {(() => {
+        if (historial.length < 2) return null;
+        const velocidades = historial.slice(1).map((r, i) => {
+          const dias = Math.max(1, (new Date(r.fecha) - new Date(historial[i].fecha)) / (1000*60*60*24));
+          const delta = Math.max(0, r.views - historial[i].views);
+          return { v: parseFloat((delta / dias).toFixed(1)), fecha: r.fecha };
+        });
+        if (velocidades.length === 1) return (
+          <div style={{ marginBottom:14, padding:'10px 14px', background:c.surfaceAlt, borderRadius:10, fontSize:13, color:c.textMuted }}>
+            <span style={{ fontWeight:600, color:c.text }}>{velocidades[0].v.toLocaleString('es-AR')} views/día</span> en el período registrado
+          </div>
+        );
+        return (
+          <MiniLineChart
+            data={velocidades}
+            lineColor={c.accent}
+            areaColor={c.accentSoft}
+          />
+        );
+      })()}
 
       {/* Historial */}
       {historial.length > 0 && (
