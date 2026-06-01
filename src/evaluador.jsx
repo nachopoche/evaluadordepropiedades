@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink } from 'lucide-react';
 import { auth, googleProvider, db, storage } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -1967,7 +1967,7 @@ const HistorialPrecio = ({ prop, update }) => {
 // ============================================================
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
-  const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, mapa:true, proceso:false, negociacion:false, visita:false, notas:false });
+  const [sec, setSec] = useState({ ident:true, inmueble:false, mapa:true, financiero:true, mercado:false, evaluacion:true, seguimiento:false });
   const isMobile = useIsMobile();
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
@@ -2056,8 +2056,11 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </div>
 
-      {/* IDENTIFICACIÓN */}
+      {/* 1. IDENTIFICACIÓN */}
       <Section icon={Info} title="Identificación" open={sec.ident} onToggle={()=>toggle('ident')}>
+        <div style={{ marginBottom:16 }}>
+          <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
+        </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:12 }}>
           <Field label="Dirección">
             <DireccionAutocomplete
@@ -2067,7 +2070,6 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
                 update('direccion', direccion);
                 update('lat', lat);
                 update('lng', lng);
-                // resetear distancias para que se recalculen
                 update('distanciasHash', '');
               }}
             />
@@ -2084,56 +2086,25 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <Field label="Subtipo"><Select value={prop.subtipo} onChange={v=>update('subtipo',v)} options={SUBTIPOS} /></Field>
           <Field label="Disposición"><Select value={prop.disposicion} onChange={v=>update('disposicion',v)} options={DISPOSICIONES} /></Field>
           <Field label="Tipo de anunciante"><Select value={prop.anunciante} onChange={v=>update('anunciante',v)} options={ANUNCIANTES} /></Field>
-          <Field label="Link al aviso"><TextInput defaultValue={prop.linkAviso} onCommit={v=>update('linkAviso',v)} placeholder="https://..." /></Field>
+          <Field label="Link al aviso">
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <div style={{ flex:1 }}><TextInput defaultValue={prop.linkAviso} onCommit={v=>update('linkAviso',v)} placeholder="https://..." /></div>
+              {prop.linkAviso && (
+                <a href={prop.linkAviso} target="_blank" rel="noopener noreferrer"
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', width:40, height:40, background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:10, color:c.textMuted, flexShrink:0, textDecoration:'none' }}>
+                  <ExternalLink size={15} />
+                </a>
+              )}
+            </div>
+          </Field>
           <Field label="Inmobiliaria"><TextInput defaultValue={prop.inmobiliaria} onCommit={v=>update('inmobiliaria',v)} /></Field>
           <Field label="Agente"><TextInput defaultValue={prop.agente} onCommit={v=>update('agente',v)} placeholder="Nombre" /></Field>
           <Field label="Teléfono del agente"><TextInput defaultValue={prop.telefonoAgente} onCommit={v=>update('telefonoAgente',v)} placeholder="+54 11 ..." /></Field>
         </div>
       </Section>
 
-      {/* FOTOS */}
-      <Section icon={ImageIcon} title="Fotos" badge={prop.fotos?.length > 0 ? <Badge bg={c.surfaceAlt} color={c.textMuted}>{prop.fotos.length}/{MAX_FOTOS}</Badge> : null} open={sec.fotos} onToggle={()=>toggle('fotos')}>
-        <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
-      </Section>
-
-      {/* COMODIDADES */}
-      <Section icon={Star} title="Comodidades" open={sec.comodidades} onToggle={()=>toggle('comodidades')}>
-        <div style={{ marginBottom:14 }}>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>De la propiedad</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            {[
-              {id:'balcon',label:'Balcón'},{id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},
-              {id:'jardin',label:'Jardín'},{id:'pileta',label:'Pileta'},{id:'quincho',label:'Quincho'},
-              {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
-              {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
-              {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            {[
-              {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
-              {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
-          </div>
-        </div>
-      </Section>
-
-      {/* CARACTERÍSTICAS */}
-      <Section icon={ListChecks} title="Características" open={sec.caracteristicas} onToggle={()=>toggle('caracteristicas')}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          {[
-            {id:'aptoCredito',label:'Apto crédito'},{id:'aptoProfesional',label:'Apto profesional'},
-            {id:'permiteMascotas',label:'Permite mascotas'},{id:'luminoso',label:'Luminoso'},
-            {id:'ofreceFinanciacion',label:'Ofrece financiación'},{id:'accesoMovilidad',label:'Acceso movilidad reducida'},
-          ].map(item => <Toggle key={item.id} checked={prop.caracteristicas?.[item.id]===true} onChange={v=>update(`caracteristicas.${item.id}`,v)} label={item.label} />)}
-        </div>
-      </Section>
-
-      {/* DATOS FÍSICOS */}
-      <Section icon={Ruler} title="Datos físicos" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.fisicos} onToggle={()=>toggle('fisicos')}>
+      {/* 2. EL INMUEBLE */}
+      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} onToggle={()=>toggle('inmueble')}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:11 }}>
           <Field label="m² cubiertos"><TextInput type="number" defaultValue={prop.m2Cubiertos} onCommit={v=>update('m2Cubiertos',v)} /></Field>
           <Field label="m² descubiertos"><TextInput type="number" defaultValue={prop.m2Descubiertos} onCommit={v=>update('m2Descubiertos',v)} /></Field>
@@ -2148,13 +2119,78 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <Field label="Calefacción"><Select value={prop.calefaccion} onChange={v=>update('calefaccion',v)} options={CALEFACCIONES} /></Field>
           <Field label="Empresa de luz"><Select value={prop.empresaLuz} onChange={v=>update('empresaLuz',v)} options={EMPRESAS_LUZ} /></Field>
         </div>
-        <div style={{ marginTop:12 }}>
+        <div style={{ marginTop:12, marginBottom:18 }}>
           <Field label="Notas de estado"><TextArea defaultValue={prop.notasEstado} onCommit={v=>update('notasEstado',v)} placeholder="Humedad, techo, terminaciones..." /></Field>
         </div>
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Comodidades de la propiedad</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'balcon',label:'Balcón'},{id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},
+              {id:'jardin',label:'Jardín'},{id:'pileta',label:'Pileta'},{id:'quincho',label:'Quincho'},
+              {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
+              {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
+              {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
+          </div>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
+              {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
+          </div>
+        </div>
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Características</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'aptoCredito',label:'Apto crédito'},{id:'aptoProfesional',label:'Apto profesional'},
+              {id:'permiteMascotas',label:'Permite mascotas'},{id:'luminoso',label:'Luminoso'},
+              {id:'ofreceFinanciacion',label:'Ofrece financiación'},{id:'accesoMovilidad',label:'Acceso movilidad reducida'},
+            ].map(item => <Toggle key={item.id} checked={prop.caracteristicas?.[item.id]===true} onChange={v=>update(`caracteristicas.${item.id}`,v)} label={item.label} />)}
+          </div>
+        </div>
+        {(() => {
+          const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
+          const totalExcl = excluyentesActivos.length + (cocheraActiva ? 1 : 0);
+          const cocheraCumple = cocheraActiva ? prop.cochera === true : true;
+          const cumpleTotal = exCumple === excluyentesActivos.length && cocheraCumple;
+          const cumpleCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
+          return (
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:c.textMuted }}>Excluyentes</div>
+                <Badge bg={cumpleTotal?c.greenSoft:c.amberSoft} color={cumpleTotal?c.green:c.amber}>Cumple {cumpleCount}/{totalExcl}</Badge>
+              </div>
+              {totalExcl === 0
+                ? <div style={{ fontSize:13, color:c.textMuted }}>No hay excluyentes configurados. Definílos en Configuración.</div>
+                : (
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
+                    {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
+                    {cocheraActiva && (
+                      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
+                        <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
+                          <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:prop.cochera?18:2, boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                        </div>
+                        <span style={{ fontSize:14, color:c.textMuted }}>Cochera <span style={{ fontSize:11, color:c.textSubtle }}>(desde Datos físicos)</span></span>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+            </div>
+          );
+        })()}
       </Section>
 
-      {/* DATOS FINANCIEROS */}
-      <Section icon={Wallet} title="Datos financieros" open={sec.financieros} onToggle={()=>toggle('financieros')}>
+      {/* 3. MAPA Y DISTANCIAS */}
+      <Section icon={Map} title="Mapa y Distancias" open={sec.mapa} onToggle={()=>toggle('mapa')}>
+        <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
+      </Section>
+
+      {/* 4. ANÁLISIS FINANCIERO */}
+      <Section icon={Wallet} title="Análisis Financiero" open={sec.financiero} onToggle={()=>toggle('financiero')}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
@@ -2223,46 +2259,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </Section>
 
-      {/* EXCLUYENTES */}
-      {(() => {
-        // Cochera se lee de Datos físicos, no es toggle manual
-        const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
-        const totalExcl = excluyentesActivos.length + (cocheraActiva ? 1 : 0);
-        const cocheraCumple = cocheraActiva ? prop.cochera === true : true;
-        const cumpleTotal = exCumple === excluyentesActivos.length && cocheraCumple;
-        const cumpleCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
-        return (
-          <Section icon={ListChecks} title="Excluyentes" badge={<Badge bg={cumpleTotal?c.greenSoft:c.amberSoft} color={cumpleTotal?c.green:c.amber}>Cumple {cumpleCount}/{totalExcl}</Badge>} open={sec.excluyentes} onToggle={()=>toggle('excluyentes')}>
-            {totalExcl === 0 ? (
-              <div style={{ fontSize:13, color:c.textMuted, padding:'8px 0' }}>No hay excluyentes configurados. Definílos en Configuración.</div>
-            ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
-                {cocheraActiva && (
-                  <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
-                    <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
-                      <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:prop.cochera?18:2, boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
-                    </div>
-                    <span style={{ fontSize:14, color:c.textMuted }}>Cochera <span style={{ fontSize:11, color:c.textSubtle }}>(desde Datos físicos)</span></span>
-                  </div>
-                )}
-              </div>
-            )}
-          </Section>
-        );
-      })()}
-
-      {/* PUNTAJES */}
-      {isAdmin && (
-        <Section icon={Star} title="Puntajes por criterio" locked preview={`${criterios.length} criterios`} open={sec.puntajes} onToggle={()=>toggle('puntajes')}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
-            {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
-          </div>
-        </Section>
-      )}
-
-      {/* DATOS DEL AVISO */}
-      <Section icon={Info} title="Datos del aviso" open={sec.aviso} onToggle={()=>toggle('aviso')}>
+      {/* 5. EN EL MERCADO */}
+      <Section icon={Clock} title="En el Mercado" open={sec.mercado} onToggle={()=>toggle('mercado')}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:11, marginBottom:14 }}>
           <Field label="Fecha de publicación"><TextInput type="date" defaultValue={prop.fechaPublicacion} onCommit={v=>update('fechaPublicacion',v)} /></Field>
           <Field label="Views actuales"><TextInput type="number" defaultValue={prop.views} onCommit={v=>update('views',v)} /></Field>
@@ -2273,33 +2271,23 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <HistorialPrecio prop={prop} update={update} />
       </Section>
 
-      {/* MAPA Y DISTANCIAS */}
-      <Section icon={Map} title="Mapa y distancias" open={sec.mapa} onToggle={()=>toggle('mapa')}>
-        <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
-      </Section>
+      {/* 6. EVALUACIÓN VALORA */}
+      {isAdmin && (
+        <Section icon={Star} title="Evaluación Valora" locked preview={`${criterios.length} criterios`} open={sec.evaluacion} onToggle={()=>toggle('evaluacion')}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
+            {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
+          </div>
+        </Section>
+      )}
 
-      {/* PROCESO */}
-      <Section icon={Info} title="Proceso y seguimiento" open={sec.proceso} onToggle={()=>toggle('proceso')}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11 }}>
+      {/* 7. SEGUIMIENTO */}
+      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} onToggle={()=>toggle('seguimiento')}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
           <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
         </div>
         {isAdmin && <Field label="Flexibilidad escrituración" locked><TextArea defaultValue={prop.flexEscrituracion} onCommit={v=>update('flexEscrituracion',v)} rows={2} /></Field>}
-      </Section>
-
-      {/* NEGOCIACIÓN */}
-      {isAdmin && (
-        <Section icon={Lock} title="Negociación" locked open={sec.negociacion} onToggle={()=>toggle('negociacion')}>
-          <Field label="Motivo de venta" locked><TextInput defaultValue={prop.motivoVenta} onCommit={v=>update('motivoVenta',v)} placeholder="Sucesión, divorcio, mudanza..." /></Field>
-          <Field label="¿El vendedor tiene apuro?" locked><Toggle checked={prop.duenoApurado} onChange={v=>update('duenoApurado',v)} label={prop.duenoApurado?'Sí':'No'} /></Field>
-          <Field label="¿Hubo otras ofertas?" locked><TextInput defaultValue={prop.otrasOfertas} onCommit={v=>update('otrasOfertas',v)} /></Field>
-          <Field label="Notas de negociación" locked><TextArea defaultValue={prop.notasNegociacion} onCommit={v=>update('notasNegociacion',v)} rows={4} /></Field>
-        </Section>
-      )}
-
-      {/* LA VISITA */}
-      <Section icon={MapPin} title="La visita" open={sec.visita} onToggle={()=>toggle('visita')}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:11, marginBottom:11 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:11, marginTop:14, marginBottom:11, borderTop:`1px solid ${c.border}`, paddingTop:14 }}>
           <Field label="Fecha de la visita"><TextInput type="date" defaultValue={prop.visita?.fecha} onCommit={v=>update('visita.fecha',v)} /></Field>
           <Field label="¿Quién visitó?"><TextInput defaultValue={prop.visita?.quienVisito} onCommit={v=>update('visita.quienVisito',v)} placeholder="Ej: los dos, solo yo..." /></Field>
         </div>
@@ -2313,14 +2301,28 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         </Field>
         <Field label="Escuelas / jardines cercanos"><TextArea defaultValue={prop.escuelas} onCommit={v=>update('escuelas',v)} rows={2} /></Field>
         <Field label="Transporte más cercano"><TextInput defaultValue={prop.transporte} onCommit={v=>update('transporte',v)} placeholder="Subte, tren, colectivos..." /></Field>
+        {isAdmin && (
+          <>
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:14, marginTop:14 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:11 }}>
+                <Lock size={12} style={{ color:c.accent }} />
+                <span style={{ fontSize:12, fontWeight:600, color:c.accent }}>Negociación</span>
+              </div>
+              <Field label="Motivo de venta" locked><TextInput defaultValue={prop.motivoVenta} onCommit={v=>update('motivoVenta',v)} placeholder="Sucesión, divorcio, mudanza..." /></Field>
+              <Field label="¿El vendedor tiene apuro?" locked><Toggle checked={prop.duenoApurado} onChange={v=>update('duenoApurado',v)} label={prop.duenoApurado?'Sí':'No'} /></Field>
+              <Field label="¿Hubo otras ofertas?" locked><TextInput defaultValue={prop.otrasOfertas} onCommit={v=>update('otrasOfertas',v)} /></Field>
+              <Field label="Notas de negociación" locked><TextArea defaultValue={prop.notasNegociacion} onCommit={v=>update('notasNegociacion',v)} rows={4} /></Field>
+            </div>
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:14, marginTop:14 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:11 }}>
+                <Lock size={12} style={{ color:c.accent }} />
+                <span style={{ fontSize:12, fontWeight:600, color:c.accent }}>Notas privadas</span>
+              </div>
+              <Field label="" locked><TextArea defaultValue={prop.notasPrivadas} onCommit={v=>update('notasPrivadas',v)} rows={5} /></Field>
+            </div>
+          </>
+        )}
       </Section>
-
-      {/* NOTAS PRIVADAS */}
-      {isAdmin && (
-        <Section icon={Lock} title="Notas privadas" locked open={sec.notas} onToggle={()=>toggle('notas')}>
-          <Field label="Notas privadas (solo admins)" locked><TextArea defaultValue={prop.notasPrivadas} onCommit={v=>update('notasPrivadas',v)} rows={5} /></Field>
-        </Section>
-      )}
     </div>
   );
 };
