@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
 import { auth, googleProvider, db, storage } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -96,6 +96,19 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 const UserContext = createContext(null);
 const useUser = () => useContext(UserContext);
+
+// Hook: detecta viewport mobile (≤ 768px) y se actualiza al hacer resize
+const useIsMobile = (breakpoint = 768) => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [breakpoint]);
+  return isMobile;
+};
 
 // ============================================================
 // TRACKING — métricas en /users/{uid}/stats/main
@@ -676,20 +689,115 @@ const WaitingScreen = ({ user, onLogout }) => (
 
 const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios, onAbrirGuia, onAbrirMigracion, migracionDisponible }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const isMobile = useIsMobile();
 
   const items = [
-    { id:'lista', label:'Propiedades', icon:Home },
-    { id:'ranking', label:'Ranking', icon:Award },
-    { id:'descartadas', label:'Descartadas', icon:X },
-    { id:'pesos', label:'Pesos', icon:SlidersHorizontal },
+    { id:'lista', label:'Propiedades', short:'Props', icon:Home },
+    { id:'ranking', label:'Ranking', short:'Ranking', icon:Award },
+    { id:'descartadas', label:'Descartadas', short:'Descart.', icon:X },
+    { id:'pesos', label:'Pesos', short:'Pesos', icon:SlidersHorizontal },
     ...(isAdmin ? [
-      { id:'presupuesto', label:'Presupuesto', icon:Wallet, locked:true },
-      { id:'configuracion', label:'Configuración', icon:Settings, locked:true },
+      { id:'presupuesto', label:'Presupuesto', short:'Presup.', icon:Wallet, locked:true },
+      { id:'configuracion', label:'Configuración', short:'Config', icon:Settings, locked:true },
     ] : []),
   ];
 
   const inicial = (currentUser.displayName || currentUser.email)[0].toUpperCase();
 
+  // Avatar + dropdown de usuario — reutilizado en desktop y mobile
+  const userMenu = (
+    <div style={{ position:'relative' }}>
+      <button onClick={()=>setShowUserMenu(s=>!s)}
+        style={{ display:'flex', alignItems:'center', gap:9, background:c.surface, border:`1px solid ${c.borderStrong}`, padding:'5px 5px 5px 12px', borderRadius:20, cursor:'pointer', fontFamily:FONT, position:'relative' }}>
+        <span style={{ fontSize:13, fontWeight:500, color:c.text }}>{currentUser.displayName?.split(' ')[0] || currentUser.email.split('@')[0]}</span>
+        <div style={{ width:26, height:26, borderRadius:'50%', background:isAdmin?c.text:c.borderStrong, color:'white', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:11 }}>{inicial}</div>
+        {isAdmin && pendientes > 0 && (
+          <div style={{ position:'absolute', top:-2, right:-2, width:16, height:16, borderRadius:'50%', background:c.accent, color:'white', fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{pendientes}</div>
+        )}
+      </button>
+
+      {showUserMenu && (
+        <>
+          <div onClick={()=>setShowUserMenu(false)} style={{ position:'fixed', inset:0, zIndex:99 }} />
+          <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 12px 30px rgba(30,45,74,0.15)', padding:6, zIndex:100, minWidth:240 }}>
+            <div style={{ padding:'10px 12px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
+              <div style={{ fontSize:13, fontWeight:600 }}>{currentUser.displayName || 'Sin nombre'}</div>
+              <div style={{ fontSize:11, color:c.textMuted, marginTop:2 }}>{currentUser.email}</div>
+              <Badge bg={isAdmin?c.text:c.borderStrong} color="white" style={{ marginTop:6 }}>{isAdmin ? 'Admin' : 'Invitado'}</Badge>
+            </div>
+            {isAdmin && (
+              <button onClick={()=>{setShowUserMenu(false); onAbrirGestionUsuarios();}}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT, justifyContent:'space-between' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Settings size={14} style={{ color:c.textMuted }} />
+                  Gestionar usuarios
+                </span>
+                {pendientes > 0 && <Badge bg={c.accent} color="white">{pendientes}</Badge>}
+              </button>
+            )}
+            {migracionDisponible && (
+              <button onClick={()=>{setShowUserMenu(false); onAbrirMigracion();}}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:c.amberSoft, border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.amber, fontSize:13, fontFamily:FONT, fontWeight:600, marginBottom:4 }}>
+                <Clock size={14} /> Migrar datos al nuevo sistema
+              </button>
+            )}
+            <button onClick={()=>{setShowUserMenu(false); onLogout();}}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT }}
+              onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <LogOut size={14} style={{ color:c.textMuted }} />
+              Cerrar sesión
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // ---- MOBILE: header compacto arriba + bottom tab bar fijo ----
+  if (isMobile) {
+    return (
+      <>
+        <div style={{ position:'sticky', top:0, zIndex:50, background:'rgba(247,246,242,0.95)', backdropFilter:'blur(12px)', borderBottom:`1px solid ${c.border}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px' }}>
+            <LogoV size={30} />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:15, lineHeight:1.1, color:c.text, letterSpacing:'-0.01em' }}>Valora</div>
+              <div style={{ fontSize:10, color:c.textMuted, lineHeight:1.2, marginTop:1 }}>
+                {propiedades.length} {propiedades.length===1?'propiedad':'propiedades'}
+              </div>
+            </div>
+            {isAdmin && (
+              <button onClick={onAbrirGuia} title="Cómo funciona Valora"
+                style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:6, borderRadius:8, display:'flex', alignItems:'center' }}>
+                <HelpCircle size={20} />
+              </button>
+            )}
+            {userMenu}
+          </div>
+        </div>
+
+        <nav style={{ position:'fixed', bottom:0, left:0, width:'100%', zIndex:60, background:'rgba(247,246,242,0.97)', backdropFilter:'blur(12px)', borderTop:`1px solid ${c.border}`, display:'flex', paddingBottom:'env(safe-area-inset-bottom)' }}>
+          {items.map(item => {
+            const Icon = item.icon;
+            const active = view === item.id;
+            return (
+              <button key={item.id} onClick={()=>setView(item.id)}
+                style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'8px 2px', minHeight:56, color:active?c.accent:c.textMuted, fontFamily:FONT, position:'relative' }}>
+                <Icon size={19} />
+                <span style={{ fontSize:10, fontWeight:active?700:500, letterSpacing:'-0.01em', whiteSpace:'nowrap' }}>{item.short}</span>
+                {item.locked && <Lock size={8} style={{ position:'absolute', top:7, left:'calc(50% + 9px)', color:c.accent }} />}
+              </button>
+            );
+          })}
+        </nav>
+      </>
+    );
+  }
+
+  // ---- DESKTOP: barra horizontal (original) ----
   return (
     <div style={{ position:'sticky', top:0, zIndex:50, background:'rgba(247,246,242,0.95)', backdropFilter:'blur(12px)', borderBottom:`1px solid ${c.border}` }}>
       <div style={{ maxWidth:1240, margin:'0 auto', padding:'12px 24px', display:'flex', alignItems:'center', gap:24, flexWrap:'wrap' }}>
@@ -730,54 +838,7 @@ const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, 
           </button>
         )}
 
-        <div style={{ position:'relative' }}>
-          <button onClick={()=>setShowUserMenu(s=>!s)}
-            style={{ display:'flex', alignItems:'center', gap:9, background:c.surface, border:`1px solid ${c.borderStrong}`, padding:'5px 5px 5px 12px', borderRadius:20, cursor:'pointer', fontFamily:FONT, position:'relative' }}>
-            <span style={{ fontSize:13, fontWeight:500, color:c.text }}>{currentUser.displayName?.split(' ')[0] || currentUser.email.split('@')[0]}</span>
-            <div style={{ width:26, height:26, borderRadius:'50%', background:isAdmin?c.text:c.borderStrong, color:'white', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:11 }}>{inicial}</div>
-            {isAdmin && pendientes > 0 && (
-              <div style={{ position:'absolute', top:-2, right:-2, width:16, height:16, borderRadius:'50%', background:c.accent, color:'white', fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{pendientes}</div>
-            )}
-          </button>
-
-          {showUserMenu && (
-            <>
-              <div onClick={()=>setShowUserMenu(false)} style={{ position:'fixed', inset:0, zIndex:99 }} />
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 12px 30px rgba(30,45,74,0.15)', padding:6, zIndex:100, minWidth:240 }}>
-                <div style={{ padding:'10px 12px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
-                  <div style={{ fontSize:13, fontWeight:600 }}>{currentUser.displayName || 'Sin nombre'}</div>
-                  <div style={{ fontSize:11, color:c.textMuted, marginTop:2 }}>{currentUser.email}</div>
-                  <Badge bg={isAdmin?c.text:c.borderStrong} color="white" style={{ marginTop:6 }}>{isAdmin ? 'Admin' : 'Invitado'}</Badge>
-                </div>
-                {isAdmin && (
-                  <button onClick={()=>{setShowUserMenu(false); onAbrirGestionUsuarios();}}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT, justifyContent:'space-between' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <Settings size={14} style={{ color:c.textMuted }} />
-                      Gestionar usuarios
-                    </span>
-                    {pendientes > 0 && <Badge bg={c.accent} color="white">{pendientes}</Badge>}
-                  </button>
-                )}
-                {migracionDisponible && (
-                  <button onClick={()=>{setShowUserMenu(false); onAbrirMigracion();}}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:c.amberSoft, border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.amber, fontSize:13, fontFamily:FONT, fontWeight:600, marginBottom:4 }}>
-                    <Clock size={14} /> Migrar datos al nuevo sistema
-                  </button>
-                )}
-                <button onClick={()=>{setShowUserMenu(false); onLogout();}}
-                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT }}
-                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <LogOut size={14} style={{ color:c.textMuted }} />
-                  Cerrar sesión
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        {userMenu}
       </div>
     </div>
   );
@@ -977,6 +1038,7 @@ const StatsAdmin = ({ presupuesto, config, topProp }) => {
 
 const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp }) => {
   const { uid } = useUser();
+  const isMobile = useIsMobile();
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
     if (p.estado === 'Descartada') return false;
@@ -987,6 +1049,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
       if (!(p.nombre||'').toLowerCase().includes(q) && !(p.zona||'').toLowerCase().includes(q) && !(p.direccion||'').toLowerCase().includes(q)) return false;
     }
     if (isAdmin && filtros.soloFavoritas && !p.favorita) return false;
+    if (filtros.tipos.length > 0 && !filtros.tipos.includes(p.tipo)) return false;
     return true;
   }).sort((a,b) => calcularPuntaje(b.puntajes,criterios) - calcularPuntaje(a.puntajes,criterios)), [propiedades, criterios, filtros, isAdmin, config]);
 
@@ -1003,7 +1066,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   const favs = isAdmin ? propiedades.filter(p=>p.favorita).length : 0;
 
   return (
-    <div style={{ maxWidth:1240, margin:'0 auto', padding:'30px 24px 64px' }}>
+    <div style={{ maxWidth:1240, margin:'0 auto', padding:isMobile?'20px 14px 88px':'30px 24px 64px' }}>
       {(() => {
         const activas = propiedades.filter(p => p.estado !== 'Descartada');
         return (
@@ -1034,6 +1097,22 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
           {ESTADOS.filter(e=>e!=='Descartada').map(e => <Chip key={e} active={filtros.estado===e} onClick={()=>setFiltros(f=>({...f, estado:f.estado===e?'':e}))}>{e}</Chip>)}
           {isAdmin && <Chip active={filtros.soloFavoritas} onClick={()=>setFiltros(f=>({...f, soloFavoritas:!f.soloFavoritas}))}><Heart size={10} fill={filtros.soloFavoritas?'white':'none'} /> Favoritas</Chip>}
         </div>
+        <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginTop:8 }}>
+          {TIPOS.map(t => {
+            const activo = filtros.tipos.includes(t);
+            return (
+              <Chip key={t} active={activo} onClick={()=>setFiltros(f=>({
+                ...f,
+                tipos: activo ? f.tipos.filter(x=>x!==t) : [...f.tipos, t]
+              }))}>{t}</Chip>
+            );
+          })}
+          {filtros.tipos.length > 0 && (
+            <Chip active={false} onClick={()=>setFiltros(f=>({...f, tipos:[]}))}>
+              <X size={10} /> Limpiar tipo
+            </Chip>
+          )}
+        </div>
       </div>
 
       {filtradas.length === 0 ? (
@@ -1054,7 +1133,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
           {propiedades.length===0 && isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={15} /> Nueva propiedad</Button>}
         </Card>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:18 }}>
+        <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill, minmax(280px, 1fr))', gap:isMobile?14:18 }}>
           {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} />)}
         </div>
       )}
@@ -1833,6 +1912,7 @@ const HistorialPrecio = ({ prop, update }) => {
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
   const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, mapa:true, proceso:false, negociacion:false, visita:false, notas:false });
+  const isMobile = useIsMobile();
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
     setProp(prev => {
@@ -1858,20 +1938,20 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
 
   return (
-    <div style={{ maxWidth:880, margin:'0 auto', padding:'24px 24px 64px' }}>
+    <div style={{ maxWidth:880, margin:'0 auto', padding:isMobile?'16px 14px 88px':'24px 24px 64px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
-        <Button variant="ghost" onClick={onBack}><ArrowLeft size={15} /> Volver</Button>
+        <Button variant="ghost" onClick={onBack} style={{ minHeight:isMobile?44:undefined }}><ArrowLeft size={15} /> Volver</Button>
         {isAdmin && (
           <div style={{ display:'flex', gap:8 }}>
-            <Button variant="secondary" size="sm" onClick={()=>update('favorita', !prop.favorita)}>
+            <Button variant="secondary" size="sm" onClick={()=>update('favorita', !prop.favorita)} style={{ minHeight:isMobile?44:undefined }}>
               <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
               {prop.favorita ? 'Favorita' : 'Marcar favorita'}
             </Button>
             {prop.estado !== 'Descartada'
-              ? <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Descartada'); onBack(); }}><X size={13} /> Descartar</Button>
-              : <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Para visitar'); onBack(); }}>Recuperar</Button>
+              ? <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Descartada'); onBack(); }} style={{ minHeight:isMobile?44:undefined }}><X size={13} /> Descartar</Button>
+              : <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Para visitar'); onBack(); }} style={{ minHeight:isMobile?44:undefined }}>Recuperar</Button>
             }
-            <Button variant="danger" size="sm" onClick={onDelete}><Trash2 size={13} /></Button>
+            <Button variant="danger" size="sm" onClick={onDelete} style={{ minHeight:isMobile?44:undefined }}><Trash2 size={13} /></Button>
           </div>
         )}
       </div>
@@ -2206,6 +2286,8 @@ const semaforoVsBarrio = (usdM2Prop, promedioBarrio) => {
 };
 
 const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin, onClose, onSelectProp }) => {
+  const isMobile = useIsMobile();
+  const [activeCol, setActiveCol] = useState(0);
   // Pre-computar datos por propiedad
   const datos = propiedades.map(p => {
     const m2pond = (p.m2Cubiertos||0) + (p.m2Descubiertos||0)*0.5;
@@ -2231,7 +2313,17 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
         bajadas = { count: histPrecio.length - 1, diff: Math.abs(diff), pct };
       }
     }
-    return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio };
+    // Días en mercado
+    const diasMercado = p.fechaPublicacion
+      ? Math.floor((new Date() - new Date(p.fechaPublicacion)) / (1000*60*60*24))
+      : null;
+    // Views/día (promedio global)
+    const histViews = p.aviso?.historialViews || [];
+    const viewsXDia = histViews.length >= 2
+      ? (histViews[histViews.length-1].views - histViews[0].views) /
+        Math.max(1, (new Date(histViews[histViews.length-1].fecha) - new Date(histViews[0].fecha)) / (1000*60*60*24))
+      : null;
+    return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio, diasMercado, viewsXDia };
   });
 
   // Helpers para resaltar ganadores
@@ -2275,22 +2367,24 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
     costoTotal:   winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.costoTotal : null), 'min'),
     vsPresup:     winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.resultado : null), 'max'),
     vsBarrio:     winnerVsBarrio,
+    diasMercado:  winnerIdx(datos.map(d => d.diasMercado), 'min'),
+    viewsXDia:    winnerIdx(datos.map(d => d.viewsXDia), 'min'),
   };
 
   const winnerStyle = (isWinner) => isWinner
-    ? { background:c.greenSoft, borderRadius:6, padding:'3px 7px', display:'inline-block', fontWeight:600 }
+    ? { background:c.greenSoft, borderRadius:6, padding:'3px 8px 3px 6px', display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, borderLeft:`3px solid ${c.green}` }
     : {};
 
   const Row = ({ label, children, sticky }) => (
     <tr style={sticky ? { background:c.surfaceAlt } : {}}>
       <td style={{ padding:'11px 14px', fontSize:12, color:c.textMuted, fontWeight:500, borderBottom:`1px solid ${c.border}`, position:'sticky', left:0, background:c.surface, zIndex:1, minWidth:160 }}>{label}</td>
-      {children}
+      {isMobile ? React.Children.toArray(children)[activeCol] : children}
     </tr>
   );
 
   const SectionHeader = ({ title, colspan }) => (
     <tr>
-      <td colSpan={colspan} style={{ padding:'14px 14px 8px', fontSize:11, fontWeight:600, color:c.textSubtle, textTransform:'uppercase', letterSpacing:0.6, background:c.surface, position:'sticky', left:0 }}>{title}</td>
+      <td colSpan={isMobile ? 2 : colspan} style={{ padding:'14px 14px 8px', fontSize:11, fontWeight:600, color:c.textSubtle, textTransform:'uppercase', letterSpacing:0.6, background:c.surface, position:'sticky', left:0 }}>{title}</td>
     </tr>
   );
 
@@ -2307,9 +2401,24 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
             <div style={{ fontSize:17, fontWeight:700 }}>Comparador</div>
             <div style={{ fontSize:12, color:c.textMuted, marginTop:2 }}>{datos.length} propiedades · La mejor de cada fila se resalta en verde</div>
           </div>
-          <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', padding:8, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:c.textMuted }} onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-            <X size={20} />
-          </button>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {isMobile && datos.length > 1 && (
+              <div style={{ display:'flex', alignItems:'center', gap:6, background:c.surfaceAlt, borderRadius:10, padding:'4px 8px' }}>
+                <button onClick={()=>setActiveCol(c=>Math.max(0,c-1))} disabled={activeCol===0}
+                  style={{ background:'transparent', border:'none', cursor:activeCol===0?'not-allowed':'pointer', color:activeCol===0?c.textSubtle:c.text, display:'flex', padding:2, opacity:activeCol===0?0.4:1 }}>
+                  <ChevronLeft size={16} />
+                </button>
+                <span style={{ fontSize:12, fontWeight:600, minWidth:36, textAlign:'center' }}>{activeCol+1} / {datos.length}</span>
+                <button onClick={()=>setActiveCol(c=>Math.min(datos.length-1,c+1))} disabled={activeCol===datos.length-1}
+                  style={{ background:'transparent', border:'none', cursor:activeCol===datos.length-1?'not-allowed':'pointer', color:activeCol===datos.length-1?c.textSubtle:c.text, display:'flex', padding:2, opacity:activeCol===datos.length-1?0.4:1 }}>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', padding:8, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:c.textMuted }} onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Tabla scroll horizontal */}
@@ -2318,24 +2427,31 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
             <thead>
               <tr>
                 <th style={{ background:c.surface, position:'sticky', left:0, top:0, zIndex:6, minWidth:160 }}></th>
-                {datos.map(({p, puntaje}) => (
-                  <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
-                    {p.fotos?.[0] && (
-                      <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
-                        <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                {datos.map(({p, puntaje},i) => {
+                  if (isMobile && i !== activeCol) return null;
+                  return (
+                    <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
+                      {p.fotos?.[0] ? (
+                        <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
+                          <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                        </div>
+                      ) : (
+                        <div style={{ width:'100%', height:90, borderRadius:9, background:semaforoBg(puntaje), marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <ImageIcon size={22} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
+                        </div>
+                      )}
+                      <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
+                      <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
+                        {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
                       </div>
-                    )}
-                    <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
-                    <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
-                      {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                      <div style={{ width:38, height:38, borderRadius:9, background:semaforoBg(puntaje), display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:colorPuntaje(puntaje) }}>{puntaje}</div>
-                      <div style={{ fontSize:11, color:c.textMuted }}>Puntaje</div>
-                    </div>
-                    <button onClick={()=>{ onClose(); onSelectProp(p.id); }} style={{ fontSize:11, fontWeight:600, color:c.accent, background:'transparent', border:`1px solid ${c.accent}`, borderRadius:7, padding:'5px 9px', cursor:'pointer' }}>Ver ficha completa</button>
-                  </th>
-                ))}
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                        <div style={{ width:38, height:38, borderRadius:9, background:semaforoBg(puntaje), display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:colorPuntaje(puntaje) }}>{puntaje}</div>
+                        <div style={{ fontSize:11, color:c.textMuted }}>Puntaje</div>
+                      </div>
+                      <button onClick={()=>{ onClose(); onSelectProp(p.id); }} style={{ fontSize:11, fontWeight:600, color:c.accent, background:'transparent', border:`1px solid ${c.accent}`, borderRadius:7, padding:'5px 9px', cursor:'pointer' }}>Ver ficha completa</button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -2368,6 +2484,25 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
                       : d.histPrecio.length >= 1
                         ? <span style={{ color:c.textMuted }}>Sin bajadas</span>
                         : <span style={{ color:c.textMuted }}>—</span>
+                    }
+                  </td>
+                ))}
+              </Row>
+              <Row label="Días en mercado">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.diasMercado===i)}>
+                      {d.diasMercado !== null ? `${d.diasMercado}d` : <span style={{ color:c.textMuted }}>—</span>}
+                    </span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Views/día">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    {d.viewsXDia !== null
+                      ? <span style={winnerStyle(winners.viewsXDia===i)}>{d.viewsXDia.toFixed(1)}</span>
+                      : <span style={{ color:c.textMuted }}>—</span>
                     }
                   </td>
                 ))}
@@ -2497,7 +2632,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
     if (e) e.stopPropagation();
     setSeleccionadas(prev => {
       if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 3) return prev; // máximo 3
+      if (prev.length >= 5) return prev; // máximo 5
       return [...prev, id];
     });
   };
@@ -2514,16 +2649,16 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
            display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 150ms',
            opacity: (!disabled || checked) ? 1 : 0.4
          }}
-         title={disabled && !checked ? 'Máximo 3 propiedades' : ''}>
+         title={disabled && !checked ? 'Máximo 5 propiedades' : ''}>
       {checked && <Check size={size-6} color="white" strokeWidth={3} />}
     </div>
   );
 
-  const limitReached = seleccionadas.length >= 3;
+  const limitReached = seleccionadas.length >= 5;
 
   return (
     <div style={{ maxWidth:1100, margin:'0 auto', padding:'30px 24px 110px' }}>
-      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado · Marcá 2 o 3 para comparar" />
+      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado · Marcá entre 2 y 5 para comparar" />
       {ranked.length === 0 ? (
         <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
           <Award size={28} style={{ color:c.textMuted, marginBottom:10 }} />
@@ -3059,7 +3194,7 @@ export default function App() {
   const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 });
   const [usuarios, setUsuarios] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false });
+  const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false, tipos:[] });
   const [showGestion, setShowGestion] = useState(false);
   const [showGuia, setShowGuia] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -3069,6 +3204,7 @@ export default function App() {
 
   const isAdmin = true; // sandbox por usuario: cada uno es admin de su propia data
   const isApproved = true; // sandbox por usuario: entrada directa, sin aprobación
+  const isMobile = useIsMobile();
 
   // 1. Auth listener
   useEffect(() => {
@@ -3261,7 +3397,7 @@ export default function App() {
 
   return (
     <UserContext.Provider value={{ uid: firebaseUser?.uid }}>
-    <div style={{ minHeight:'100vh', background:c.bg, fontFamily:FONT, color:c.text }}>
+    <div style={{ minHeight:'100vh', background:c.bg, fontFamily:FONT, color:c.text, paddingBottom:isMobile?64:0 }}>
       <NavBar
         view={view}
         setView={v => { setView(v); setSelectedId(null); }}
