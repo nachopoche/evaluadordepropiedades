@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal } from 'lucide-react';
 import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -288,46 +288,46 @@ const ONBOARDING_SLIDES = [
 
 const GUIA_SECCIONES = [
   {
-    id: 'propiedades',
-    titulo: 'Propiedades',
+    id: 'cargar',
+    titulo: 'Cargar una propiedad',
     emoji: '🏠',
-    contenido: 'Es la vista principal. Cada propiedad tiene una card con su puntaje, precio y análisis financiero. Podés filtrar por zona, estado y favoritas.\n\nHacé clic en una propiedad para ver y editar todos sus datos: identificación, datos físicos, financieros, comodidades, puntajes y más.',
+    contenido: 'Tenés dos formas.\n\n**Manual:** tocás "+ Nueva propiedad" y completás los campos a mano.\n\n**✨ Carga Rápida con IA:** copiás todo el texto de un aviso de Zonaprop, Argenprop o MercadoLibre, lo pegás, y Valora completa solo precio, m², ambientes, dirección, comodidades y más. Los campos que la IA dedujo quedan marcados con ✨ para que les des un vistazo. Todo es editable después.\n\nPowered by Claude AI.',
   },
   {
-    id: 'ranking',
-    titulo: 'Ranking',
-    emoji: '🏆',
-    contenido: 'Las propiedades se ordenan automáticamente de mayor a menor puntaje. Solo aparecen las que cumplen todos los excluyentes activos y no están descartadas.\n\nEl top 3 se destaca en cards grandes. El resto aparece en lista.',
-  },
-  {
-    id: 'pesos',
-    titulo: 'Pesos',
+    id: 'pesos-excluyentes',
+    titulo: 'Pesos vs Excluyentes',
     emoji: '⚖️',
-    contenido: 'Cada criterio tiene un peso del 1 al 5. Cuanto más alto, más influye en el puntaje final.\n\nEl puntaje de una propiedad es: Σ(puntaje × peso) / Σ(10 × peso) × 100.\n\nEjemplo: si "Espacio exterior" tiene peso 5 y le ponés 8/10, eso pesa mucho más que "Ruido percibido" con peso 2.',
+    contenido: 'Son dos cosas distintas y es la clave de Valora:\n\n• **Excluyentes** son de sí o no, tus innegociables. Si una propiedad no cumple uno (ej: necesitás cochera y no tiene), Valora lo señala con una alerta.\n\n• **Pesos** son cuánto te importa cada criterio, del 1 al 5. Le ponés más peso a lo que más valorás.\n\nEl puntaje final combina la nota que le diste a cada criterio con su peso: Σ(puntaje × peso) / Σ(10 × peso) × 100.\n\nEjemplo: "Luz natural" con peso 5 y nota 8/10 pesa mucho más que "Antigüedad" con peso 1 y nota 9/10.',
   },
   {
-    id: 'excluyentes',
-    titulo: 'Excluyentes',
-    emoji: '🚫',
-    contenido: 'Son filtros duros. Si una propiedad no cumple TODOS los excluyentes activos, queda descartada automáticamente — no aparece en el ranking.\n\nDistinto de los pesos: acá no hay matices. Es sí o no.\n\nConfigurás cuáles excluyentes están activos en la sección Configuración.',
-  },
-  {
-    id: 'presupuesto',
-    titulo: 'Presupuesto',
+    id: 'financiero',
+    titulo: 'Análisis Financiero',
     emoji: '💰',
-    contenido: 'Cargás una sola vez tus fuentes de fondos: venta de tu propiedad actual (rango mínimo y máximo), ahorros propios y aportes adicionales.\n\nValora suma todo y lo compara contra el costo de cada propiedad (precio + comisión + gastos). El resultado aparece en verde, ámbar o rojo en cada propiedad.\n\nEsto es privado — solo lo ven los admins.',
+    contenido: 'Valora calcula cuánto te sale comprar en total: precio pedido + comisión + gastos de escritura (los porcentajes los configurás vos en Configuración). Lo compara con tu presupuesto disponible y te dice si te sobra, te ajusta o te falta.\n\nTambién muestra el precio por m² del aviso contra el promedio del barrio (índice Zonaprop, mayo 2026). Si el aviso está más caro que el barrio, tenés argumento para negociar.',
   },
   {
-    id: 'configuracion',
-    titulo: 'Configuración',
+    id: 'mercado',
+    titulo: 'En el Mercado',
+    emoji: '📊',
+    contenido: 'Dos señales para negociar mejor:\n\n• **Semáforo de demanda:** qué tan rápido suben las visualizaciones del aviso. Frío (< 10 views/día) = más margen para ofertar. Caliente (> 30 views/día) = hay interés, apurate.\n\n• **Historial de precio:** si el dueño ya bajó el precio una o más veces, es señal de que está dispuesto a negociar. Cada entrada que cargás queda registrada con fecha y monto.',
+  },
+  {
+    id: 'mapa',
+    titulo: 'Mapa y Distancias',
+    emoji: '🗺️',
+    contenido: 'Cargás la dirección de la propiedad y Valora te muestra el mapa y calcula las distancias a los lugares que te importan: trabajo, escuela, casa de familiares, o lo que configures.\n\nEs info que ningún portal te da junta. Sirve para comparar ubicaciones reales en minutos de traslado, no solo por barrio.\n\nAgregar tus lugares de referencia desde Configuración.',
+  },
+  {
+    id: 'comparador',
+    titulo: 'El Comparador',
+    emoji: '🔍',
+    contenido: 'Desde Ranking marcás hasta 5 propiedades y las ves lado a lado en una tabla: puntaje, precio, precio por m², análisis financiero, días en mercado, views por día y más.\n\nLa mejor opción de cada fila se resalta en verde para que veas de un vistazo cuál gana en qué. En mobile podés navegar de una propiedad a la otra con las flechas.',
+  },
+  {
+    id: 'config',
+    titulo: 'Presupuesto y Configuración',
     emoji: '⚙️',
-    contenido: 'Acá personalizás Valora para tu búsqueda:\n\n• Parámetros de compra: comisión, gastos de escritura y otros (reformas, mudanza). Afectan el análisis de todas las propiedades.\n\n• Barrios deseados: los que seleccionás influyen en el criterio "Zona deseada".\n\n• Excluyentes: elegís cuáles están activos para tu búsqueda.\n\n• Lugares de referencia: guardás direcciones (trabajo, colegio) para calcular distancias con Google Maps (próximamente).',
-  },
-  {
-    id: 'descartadas',
-    titulo: 'Descartadas',
-    emoji: '🗑️',
-    contenido: 'Las propiedades que marcaste como "Descartada" o que no cumplen tus excluyentes activos aparecen acá.\n\nDesde esta vista podés recuperarlas si cambiás de opinión (solo admins).',
+    contenido: 'En **Presupuesto** cargás tus fuentes de fondos una sola vez: venta de tu propiedad actual (rango mínimo y máximo), ahorros propios y aportes adicionales. Valora suma todo y lo usa para el análisis financiero de cada propiedad.\n\nEn **Configuración** personalizás Valora: criterios de evaluación, excluyentes activos, porcentajes de comisión y gastos, y tus lugares de referencia para el mapa.\n\nTodo esto es privado — solo lo ves vos.',
   },
 ];
 
@@ -931,7 +931,8 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 // PROPCARD
 // ============================================================
 
-const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) => {
+const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDescartar, onEliminar, onToggleFavorita }) => {
+  const [showMenu, setShowMenu] = useState(false);
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos);
   const analisis = calcularAnalisis(prop, presupuesto, config);
@@ -954,8 +955,43 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
           {prop.estado||'Sin estado'}
         </div>
         {isAdmin && prop.favorita && (
-          <div style={{ position:'absolute', top:10, right:10, width:28, height:28, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
+          <div style={{ position:'absolute', top:10, right:44, width:28, height:28, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm, pointerEvents:'none' }}>
             <Heart size={13} fill={c.accent} color={c.accent} />
+          </div>
+        )}
+        {isAdmin && (
+          <div style={{ position:'absolute', top:10, right:10 }} onClick={e=>e.stopPropagation()}>
+            <button onClick={e=>{e.stopPropagation(); setShowMenu(s=>!s);}}
+              style={{ width:28, height:28, borderRadius:'50%', background:c.surface, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
+              <MoreHorizontal size={14} color={c.textMuted} />
+            </button>
+            {showMenu && (
+              <>
+                <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:9 }} />
+                <div style={{ position:'absolute', top:34, right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:10, minWidth:168 }}>
+                  <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
+                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
+                    {prop.favorita ? 'Quitar favorita' : 'Marcar favorita'}
+                  </button>
+                  <button onClick={e=>{e.stopPropagation(); onDescartar(prop.id); setShowMenu(false);}}
+                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <X size={13} /> Descartar
+                  </button>
+                  <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }} />
+                  <button onClick={e=>{e.stopPropagation(); onEliminar(prop.id); setShowMenu(false);}}
+                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.red, textAlign:'left' }}
+                    onMouseEnter={e=>e.currentTarget.style.background=c.redSoft}
+                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                    <Trash2 size={13} /> Eliminar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
         <div style={{ position:'absolute', bottom:10, right:10, background:c.surface, padding:'5px 11px', borderRadius:8, fontSize:18, fontWeight:700, color:colorPuntaje(puntaje), boxShadow:shadow.sm }}>
@@ -1089,7 +1125,7 @@ const FiltroDropdown = ({ label, options, selected, onToggle, onClear }) => {
 // LISTA VIEW
 // ============================================================
 
-const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp }) => {
+const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp, onDescartar, onEliminar, onToggleFavorita }) => {
   const { uid } = useUser();
   const isMobile = useIsMobile();
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
@@ -1198,7 +1234,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
         </Card>
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill, minmax(280px, 1fr))', gap:isMobile?14:18 }}>
-          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} />)}
+          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} onDescartar={onDescartar} onEliminar={onEliminar} onToggleFavorita={onToggleFavorita} />)}
         </div>
       )}
     </div>
@@ -3525,6 +3561,19 @@ export default function App() {
     await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { estado: 'Para visitar' });
   }, [firebaseUser]);
 
+  const onDescartarProp = useCallback(async (id) => {
+    await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { estado: 'Descartada' });
+  }, [firebaseUser]);
+
+  const onEliminarProp = useCallback(async (id) => {
+    if (!confirm('¿Eliminar esta propiedad? Esta acción no se puede deshacer.')) return;
+    await deleteDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id));
+  }, [firebaseUser]);
+
+  const onToggleFavorita = useCallback(async (id, valor) => {
+    await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { favorita: valor });
+  }, [firebaseUser]);
+
   // Config/criterios/presupuesto handlers (guardan en Firestore)
   const setCriteriosFirestore = useCallback((updater) => {
     setCriterios(prev => {
@@ -3600,7 +3649,7 @@ export default function App() {
         />
       ) : (
         <>
-          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} />}
+          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} onDescartar={onDescartarProp} onEliminar={onEliminarProp} onToggleFavorita={onToggleFavorita} />}
           {view === 'ranking' && <RankingView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onSelectProp={setSelectedId} />}
           {view === 'descartadas' && <DescartadasView propiedades={propiedades} config={config} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
           {view === 'pesos' && <PesosView criterios={criterios} setCriterios={setCriteriosFirestore} isAdmin={isAdmin} />}
