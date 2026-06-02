@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink } from 'lucide-react';
-import { auth, googleProvider, db, storage } from './firebase';
+import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { httpsCallable } from 'firebase/functions';
 
 // ============================================================
 // CONSTANTES
@@ -396,14 +397,21 @@ const Select = React.memo(({ value, onChange, options, placeholder }) => (
   </select>
 ));
 
-const Toggle = ({ checked, onChange, label }) => (
+const Toggle = ({ checked, onChange, label, aiBadge=false }) => (
   <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', padding:'6px 0' }}>
     <div onClick={()=>onChange(!checked)} style={{ width:38, height:22, borderRadius:11, background:checked?c.accent:'#D5D1C7', position:'relative', transition:'background 200ms', flexShrink:0 }}>
       <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:checked?18:2, transition:'left 200ms', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
     </div>
     <span style={{ fontSize:14, color:c.text }}>{label}</span>
+    {aiBadge && <span title="Completado por IA — revisá" style={{ fontSize:11, color:c.accent, fontWeight:700, marginLeft:2 }}>✨</span>}
   </label>
 );
+
+const Toast = ({ msg }) => msg ? (
+  <div style={{ position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)', background:c.text, color:'white', padding:'12px 20px', borderRadius:12, fontSize:13, fontWeight:500, zIndex:300, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', whiteSpace:'nowrap', maxWidth:'calc(100vw - 40px)', textAlign:'center' }}>
+    {msg}
+  </div>
+) : null;
 
 const Slider = ({ value, onChange, min=0, max=10, label, weight, disabled=false }) => (
   <div style={{ marginBottom:14 }}>
@@ -1969,6 +1977,12 @@ const HistorialPrecio = ({ prop, update }) => {
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
   const [sec, setSec] = useState({ ident:true, inmueble:false, mapa:true, financiero:true, mercado:false, evaluacion:true, seguimiento:false });
   const isMobile = useIsMobile();
+  const [aiFilled, setAiFilled] = useState([]);
+  const [showCargaRapida, setShowCargaRapida] = useState(false);
+  const [textoAviso, setTextoAviso] = useState('');
+  const [cargandoIA, setCargandoIA] = useState(false);
+  const [errorIA, setErrorIA] = useState(null);
+  const [toastMsg, setToastMsg] = useState(null);
   const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
   const update = (path, value) => {
     setProp(prev => {
@@ -1983,6 +1997,47 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const analisis = calcularAnalisis(prop, presupuesto, config);
+
+  const aplicarCargaRapida = (json) => {
+    const filled = [];
+    ['nombre','direccion','zona','tipo','subtipo','disposicion','orientacion',
+     'ambientes','dormitorios','banos','m2Cubiertos','m2Descubiertos',
+     'antiguedad','piso','cochera','precioPedido','expensas','anunciante','inmobiliaria'
+    ].forEach(k => { if (json[k] !== undefined) { update(k, json[k]); filled.push(k); } });
+    if (json.zona && PRECIOS_BARRIO_USADO[json.zona]) update('promedioBarrio', PRECIOS_BARRIO_USADO[json.zona]);
+    if (json.diasPublicado) {
+      const d = new Date(); d.setDate(d.getDate() - json.diasPublicado);
+      update('fechaPublicacion', d.toISOString().split('T')[0]); filled.push('fechaPublicacion');
+    }
+    ['terraza','ascensor','gasNatural'].forEach(k => {
+      if (json.excluyentes?.[k]) { update(`excluyentes.${k}`, true); filled.push(`excluyentes.${k}`); }
+    });
+    ['balcon','terraza','patio','jardin','pileta','quincho','solarium','lavadero',
+     'parrilla','baulera','vestidor','dependencia','toilette','banoSuite','sum',
+     'gimnasio','ascensor','laundry'].forEach(k => {
+      if (json.comodidades?.[k]) { update(`comodidades.${k}`, true); filled.push(`comodidades.${k}`); }
+    });
+    setAiFilled(filled);
+    const badges = filled.filter(k => k.includes('.')).length;
+    setToastMsg(`✨ Valora completó ${filled.length} campos${badges > 0 ? ` · Revisá los ${badges} marcados con ✨` : ''}.`);
+    setTimeout(() => setToastMsg(null), 5000);
+  };
+
+  const lanzarCargaRapida = async () => {
+    if (!textoAviso.trim()) return;
+    setCargandoIA(true); setErrorIA(null);
+    try {
+      const fn = httpsCallable(functions, 'parsearAviso');
+      const result = await fn({ texto: textoAviso });
+      aplicarCargaRapida(result.data);
+      setShowCargaRapida(false);
+      setTextoAviso('');
+    } catch (e) {
+      setErrorIA('No se pudo procesar el aviso. Intentá de nuevo.');
+    } finally {
+      setCargandoIA(false);
+    }
+  };
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
   const usdM2 = m2pond>0 && prop.precioPedido ? prop.precioPedido/m2pond : null;
@@ -2101,6 +2156,18 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <Field label="Agente"><TextInput defaultValue={prop.agente} onCommit={v=>update('agente',v)} placeholder="Nombre" /></Field>
           <Field label="Teléfono del agente"><TextInput defaultValue={prop.telefonoAgente} onCommit={v=>update('telefonoAgente',v)} placeholder="+54 11 ..." /></Field>
         </div>
+        {isAdmin && (
+          <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${c.border}`, display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+            <button onClick={()=>setShowCargaRapida(true)}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:'0 2px 8px rgba(232,69,74,0.3)' }}>
+              ✨ Carga Rápida con IA
+            </button>
+            <div style={{ fontSize:11, color:c.textMuted, lineHeight:1.5 }}>
+              Pegá el texto del aviso y Valora completa los campos automáticamente.<br />
+              <span style={{ color:c.textSubtle }}>Powered by Claude AI</span>
+            </div>
+          </div>
+        )}
       </Section>
 
       {/* 2. EL INMUEBLE */}
@@ -2131,14 +2198,14 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
               {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
               {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
               {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} aiBadge={aiFilled.includes(`comodidades.${item.id}`)} />)}
           </div>
           <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
             {[
               {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
               {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} aiBadge={aiFilled.includes(`comodidades.${item.id}`)} />)}
           </div>
         </div>
         <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginBottom:14 }}>
@@ -2167,7 +2234,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
                 ? <div style={{ fontSize:13, color:c.textMuted }}>No hay excluyentes configurados. Definílos en Configuración.</div>
                 : (
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                    {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
+                    {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} aiBadge={aiFilled.includes(`excluyentes.${e.id}`)} />)}
                     {cocheraActiva && (
                       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
                         <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
@@ -2323,6 +2390,40 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           </>
         )}
       </Section>
+
+      {/* MODAL CARGA RÁPIDA */}
+      {showCargaRapida && (
+        <>
+          <div onClick={()=>setShowCargaRapida(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:100 }} />
+          <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', background:c.surface, borderRadius:16, padding:24, zIndex:101, width:'min(560px, 92vw)', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>✨ Carga Rápida con IA</div>
+                <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>
+                  Copiá todo el texto del aviso de Zonaprop, Argenprop o MercadoLibre y pegalo acá.<br />
+                  <span style={{ color:c.textSubtle }}>Powered by Claude AI (Haiku 4.5)</span>
+                </div>
+              </div>
+              <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, padding:4, display:'flex', flexShrink:0 }}><X size={18} /></button>
+            </div>
+            <textarea
+              value={textoAviso}
+              onChange={e=>setTextoAviso(e.target.value)}
+              placeholder="Pegá acá todo el texto del aviso..."
+              style={{ width:'100%', height:200, padding:12, borderRadius:10, border:`1px solid ${c.border}`, fontFamily:FONT, fontSize:13, resize:'vertical', background:c.surfaceAlt, color:c.text, outline:'none', boxSizing:'border-box', lineHeight:1.6 }}
+            />
+            {errorIA && <div style={{ color:c.red, fontSize:12, marginTop:8, display:'flex', alignItems:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
+            <div style={{ display:'flex', gap:10, marginTop:14, justifyContent:'flex-end', alignItems:'center' }}>
+              <Button variant="secondary" onClick={()=>setShowCargaRapida(false)}>Cancelar</Button>
+              <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
+                {cargandoIA ? '⏳ Analizando...' : '✨ Completar campos'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      <Toast msg={toastMsg} />
     </div>
   );
 };
