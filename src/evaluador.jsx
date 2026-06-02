@@ -2017,6 +2017,18 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
      'gimnasio','ascensor','laundry'].forEach(k => {
       if (json.comodidades?.[k]) { update(`comodidades.${k}`, true); filled.push(`comodidades.${k}`); }
     });
+    // Geocodificar dirección automáticamente para activar el mapa
+    if (json.direccion && window.google?.maps?.Geocoder) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address: json.direccion + ', Buenos Aires, Argentina' }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          update('lat', loc.lat());
+          update('lng', loc.lng());
+          update('distanciasHash', '');
+        }
+      });
+    }
     setAiFilled(filled);
     const badges = filled.filter(k => k.includes('.')).length;
     setToastMsg(`✨ Valora completó ${filled.length} campos${badges > 0 ? ` · Revisá los ${badges} marcados con ✨` : ''}.`);
