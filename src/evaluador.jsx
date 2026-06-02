@@ -2033,7 +2033,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       setShowCargaRapida(false);
       setTextoAviso('');
     } catch (e) {
-      setErrorIA('No se pudo procesar el aviso. Intentá de nuevo.');
+      setErrorIA(e?.message ? `Error: ${e.message}` : 'No se pudo procesar el aviso. Intentá de nuevo.');
     } finally {
       setCargandoIA(false);
     }
