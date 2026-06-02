@@ -509,8 +509,8 @@ const OnboardingModal = ({ onClose }) => {
 // ============================================================
 
 const GuiaModal = ({ onClose }) => {
-  const [secActiva, setSecActiva] = React.useState('propiedades');
-  const sec = GUIA_SECCIONES.find(s => s.id === secActiva);
+  const [secActiva, setSecActiva] = React.useState(GUIA_SECCIONES[0].id);
+  const sec = GUIA_SECCIONES.find(s => s.id === secActiva) || GUIA_SECCIONES[0];
 
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'40px 20px', overflow:'auto' }}>
