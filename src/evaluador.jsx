@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop } from 'lucide-react';
 import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -1002,8 +1002,8 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
   return (
     <Card hoverable onClick={onClick} style={{ opacity:!cumple ? 0.55 : 1 }}>
       <div style={{ height:140, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
-        {prop.fotos?.[0]
-          ? <img src={prop.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
+        {prop.portada
+          ? <img src={prop.portada} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
           : <ImageIcon size={30} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
         }
         <div style={{ position:'absolute', top:10, left:10, background:c.surface, padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:500, display:'flex', alignItems:'center', gap:5, boxShadow:shadow.sm }}>
@@ -1299,15 +1299,173 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
 };
 
 // Helper thumbnail reutilizable en cards
-const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
-  const url = fotos?.[0];
-  return url ? (
-    <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden', flexShrink:0 }}>
-      <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-    </div>
-  ) : (
-    <div style={{ width:size, height:size, borderRadius:radius, background:semaforoBg(puntaje||0), display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-      <ImageIcon size={size*0.3} style={{ color:colorPuntaje(puntaje||0), opacity:0.4 }} />
+// ============================================================
+// PORTADA — subida + recorte (exclusiva, separada de la galería)
+// ============================================================
+
+const subirBlobPortada = async (blob, userId, propId) => {
+  const storageRef = ref(storage, `portadas/${userId}/${propId}/${Date.now()}.jpg`);
+  const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
+  await new Promise((resolve, reject) => task.on('state_changed', null, reject, resolve));
+  return getDownloadURL(task.snapshot.ref);
+};
+
+const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
+  const [dims, setDims] = useState(null);
+  const [crop, setCrop] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const imgRef = React.useRef(null);
+  const natural = React.useRef({ w:0, h:0 });
+  const drag = React.useRef(null);
+
+  const MAXBOX_W = Math.min(window.innerWidth * 0.86, 560);
+  const MAXBOX_H = window.innerHeight * 0.62;
+
+  const onImgLoad = (e) => {
+    if (dims) return;
+    const nw = e.target.naturalWidth, nh = e.target.naturalHeight;
+    natural.current = { w:nw, h:nh };
+    const scale = Math.min(MAXBOX_W / nw, MAXBOX_H / nh, 1);
+    const dw = Math.round(nw * scale), dh = Math.round(nh * scale);
+    setDims({ dw, dh });
+    const cw = Math.round(dw * 0.8), ch = Math.round(dh * 0.8);
+    setCrop({ x: Math.round((dw-cw)/2), y: Math.round((dh-ch)/2), w: cw, h: ch });
+  };
+
+  const pointerXY = (e) => {
+    const r = imgRef.current.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onMove = (e) => {
+    if (!drag.current || !dims) return;
+    const p = pointerXY(e);
+    const { mode, start, orig } = drag.current;
+    let { x, y, w, h } = orig;
+    const dx = p.x - start.x, dy = p.y - start.y;
+    const MIN = 40;
+    if (mode === 'move') {
+      x = Math.max(0, Math.min(orig.x + dx, dims.dw - w));
+      y = Math.max(0, Math.min(orig.y + dy, dims.dh - h));
+    } else {
+      if (mode.includes('e')) w = Math.max(MIN, Math.min(orig.w + dx, dims.dw - orig.x));
+      if (mode.includes('s')) h = Math.max(MIN, Math.min(orig.h + dy, dims.dh - orig.y));
+      if (mode.includes('w')) { const nx = Math.max(0, Math.min(orig.x + dx, orig.x + orig.w - MIN)); x = nx; w = orig.w + (orig.x - nx); }
+      if (mode.includes('n')) { const ny = Math.max(0, Math.min(orig.y + dy, orig.y + orig.h - MIN)); y = ny; h = orig.h + (orig.y - ny); }
+    }
+    setCrop({ x, y, w, h });
+  };
+
+  const endDrag = () => {
+    drag.current = null;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', endDrag);
+  };
+
+  const startDrag = (mode) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    drag.current = { mode, start: pointerXY(e), orig: { ...crop } };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', endDrag);
+  };
+
+  const confirmar = async () => {
+    if (!crop || !dims) return;
+    setBusy(true);
+    try {
+      const scale = natural.current.w / dims.dw;
+      const outW = Math.round(crop.w * scale), outH = Math.round(crop.h * scale);
+      const cap = outW > MAX_W ? MAX_W / outW : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(outW * cap);
+      canvas.height = Math.round(outH * cap);
+      canvas.getContext('2d').drawImage(imgRef.current, crop.x*scale, crop.y*scale, crop.w*scale, crop.h*scale, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', QUALITY));
+      await onConfirm(blob);
+    } catch { setBusy(false); }
+  };
+
+  return createPortal(
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:3000, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:20, fontFamily:FONT }}>
+      <div style={{ color:'white', fontSize:14, fontWeight:600, marginBottom:14 }}>Recortá la portada</div>
+      <img src={src} onLoad={onImgLoad} alt="" style={{ display:'none' }} />
+      {dims && (
+        <div style={{ position:'relative', width:dims.dw, height:dims.dh, touchAction:'none', userSelect:'none' }}>
+          <img ref={imgRef} src={src} draggable={false} alt="" style={{ width:dims.dw, height:dims.dh, display:'block', borderRadius:4 }} />
+          {crop && <>
+            <div onPointerDown={startDrag('move')}
+              style={{ position:'absolute', left:crop.x, top:crop.y, width:crop.w, height:crop.h, border:'2px solid white', boxShadow:'0 0 0 9999px rgba(0,0,0,0.5)', cursor:'move', boxSizing:'border-box' }} />
+            {['nw','ne','sw','se'].map(corner => {
+              const pos = { nw:{left:crop.x-8, top:crop.y-8}, ne:{left:crop.x+crop.w-8, top:crop.y-8}, sw:{left:crop.x-8, top:crop.y+crop.h-8}, se:{left:crop.x+crop.w-8, top:crop.y+crop.h-8} }[corner];
+              return <div key={corner} onPointerDown={startDrag(corner)}
+                style={{ position:'absolute', ...pos, width:17, height:17, borderRadius:'50%', background:'white', border:`2px solid ${c.accent}`, cursor:`${corner}-resize`, touchAction:'none' }} />;
+            })}
+          </>}
+        </div>
+      )}
+      <div style={{ display:'flex', gap:10, marginTop:18 }}>
+        <button onClick={onCancel} disabled={busy}
+          style={{ padding:'10px 18px', borderRadius:10, border:'1px solid rgba(255,255,255,0.3)', background:'transparent', color:'white', cursor:'pointer', fontSize:13, fontFamily:FONT }}>Cancelar</button>
+        <button onClick={confirmar} disabled={busy || !crop}
+          style={{ padding:'10px 18px', borderRadius:10, border:'none', background:c.accent, color:'white', cursor:busy?'default':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, opacity:busy?0.6:1 }}>{busy?'Guardando...':'Usar como portada'}</button>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=14, puntaje }) => {
+  const { uid } = useUser();
+  const fileRef = React.useRef(null);
+  const [editSrc, setEditSrc] = useState(null);
+  const [hover, setHover] = useState(false);
+  const url = prop.portada;
+
+  const elegir = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setEditSrc(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const guardar = async (blob) => {
+    try {
+      const nuevaUrl = await subirBlobPortada(blob, userId, propId);
+      if (url) { try { await deleteObject(ref(storage, url)); } catch { /* ignore */ } }
+      update('portada', nuevaUrl);
+      trackEvent(uid, 'fotosSubidas');
+    } finally { setEditSrc(null); }
+  };
+
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}
+      onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}>
+      {url ? (
+        <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden' }}>
+          <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+        </div>
+      ) : (
+        <div style={{ width:size, height:size, borderRadius:radius, background:semaforoBg(puntaje||0), display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <ImageIcon size={size*0.3} style={{ color:colorPuntaje(puntaje||0), opacity:0.4 }} />
+        </div>
+      )}
+      {isAdmin && (
+        <>
+          <button onClick={()=>fileRef.current?.click()} title={url?'Cambiar portada':'Agregar portada'}
+            style={{ position:'absolute', inset:0, borderRadius:radius, border:'none', cursor:'pointer',
+              background: url ? (hover?'rgba(0,0,0,0.45)':'transparent') : 'transparent',
+              display:'flex', alignItems: url?'flex-end':'center', justifyContent:'center', padding:6,
+              opacity: url ? (hover?1:0) : 1, transition:'all 150ms' }}>
+            {!url
+              ? <span style={{ fontSize:10, fontWeight:600, color:colorPuntaje(puntaje||0) }}>+ portada</span>
+              : <span style={{ fontSize:10, fontWeight:600, color:'white', background:'rgba(0,0,0,0.55)', padding:'3px 7px', borderRadius:6, display:'flex', alignItems:'center', gap:4 }}><Crop size={11} /> Cambiar</span>}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={elegir} />
+        </>
+      )}
+      {editSrc && <RecortadorPortada src={editSrc} onCancel={()=>setEditSrc(null)} onConfirm={guardar} />}
     </div>
   );
 };
@@ -1548,6 +1706,7 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
   const [errores, setErrores] = useState({});
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const fileRef = React.useRef();
+  const camRef = React.useRef();
 
   const abrirLightbox = (i) => setLightboxIdx(i);
   const cerrarLightbox = () => setLightboxIdx(null);
@@ -1592,11 +1751,6 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
     try { await deleteObject(ref(storage, url)); } catch { /* ignore */ }
   };
 
-  const hacerPrincipal = (i) => {
-    if (i === 0) return;
-    update('fotos', [fotos[i], ...fotos.filter((_,idx) => idx !== i)]);
-  };
-
   const haySubidas = Object.keys(subiendo).length > 0;
   const hayErrores = Object.keys(errores).length > 0;
   const puedeSubir = fotos.length < MAX_FOTOS && !haySubidas;
@@ -1608,19 +1762,10 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
           {fotos.map((url, i) => (
             <div key={url} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt }}>
               <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', cursor:'pointer' }} onClick={()=>abrirLightbox(i)} />
-              {i === 0 && (
-                <div style={{ position:'absolute', top:5, left:5, background:c.accent, color:'white', fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:5, pointerEvents:'none' }}>Principal</div>
-              )}
               {isAdmin && (
                 <div className="foto-overlay" style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0)', display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:0, transition:'all 150ms' }}
                   onMouseEnter={e=>{e.currentTarget.style.background='rgba(0,0,0,0.48)';e.currentTarget.style.opacity='1';}}
                   onMouseLeave={e=>{e.currentTarget.style.background='rgba(0,0,0,0)';e.currentTarget.style.opacity='0';}}>
-                  {i !== 0 && (
-                    <button onClick={(e)=>{e.stopPropagation();hacerPrincipal(i);}}
-                      style={{ background:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11, fontWeight:600, cursor:'pointer', color:c.text }}>
-                      Principal
-                    </button>
-                  )}
                   <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
                     style={{ background:c.red, border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white' }}>
                     <X size={14} />
@@ -1647,17 +1792,23 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
         <div key={i} style={{ fontSize:12, color:c.red, padding:'6px 10px', background:c.redSoft, borderRadius:7, marginBottom:8 }}>⚠️ {err}</div>
       ))}
       {isAdmin && (
-        <div>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
           <input ref={fileRef} type="file" accept="image/*" multiple style={{ display:'none' }}
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+            onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <button onClick={()=>camRef.current?.click()} disabled={!puedeSubir}
+            style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.accent:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?'white':c.textMuted, fontWeight:600 }}>
+            <Camera size={15} /> Tomar foto
+          </button>
           <button onClick={()=>fileRef.current?.click()} disabled={!puedeSubir}
             style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.surfaceAlt:'transparent', border:`1.5px dashed ${puedeSubir?c.border:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.text:c.textMuted, fontWeight:500 }}>
             <Plus size={15} />
-            {fotos.length === 0 ? 'Agregar fotos' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS} fotos` : `Agregar fotos (${fotos.length}/${MAX_FOTOS})`}
+            {fotos.length === 0 ? 'Subir fotos' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS} fotos` : `Subir fotos (${fotos.length}/${MAX_FOTOS})`}
           </button>
-          {fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Hover para eliminar o hacer principal · Click para ampliar</div>}
         </div>
       )}
+      {isAdmin && fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Hover para eliminar · Click para ampliar</div>}
       {lightboxIdx !== null && (
         <Lightbox fotos={fotos} index={lightboxIdx} onClose={cerrarLightbox} onPrev={prevFoto} onNext={nextFoto} />
       )}
@@ -1830,7 +1981,7 @@ const MapaDistancias = ({ prop, lugaresRef, update, isAdmin }) => {
     });
 
     // InfoWindow de la propiedad con foto
-    const fotoPrincipal = prop.fotos?.[0];
+    const fotoPrincipal = prop.portada;
     const iwContent = `
       <div style="max-width:200px;font-family:sans-serif">
         ${fotoPrincipal ? `<img src="${fotoPrincipal}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px" />` : ''}
@@ -2080,6 +2231,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
     { id:'financiero', label:'Financiero',         icon:Wallet },
     { id:'mercado',    label:'Mercado',            icon:Clock },
     ...(isAdmin ? [{ id:'evaluacion', label:'Evaluación', icon:Star }] : []),
+    { id:'visita',     label:'La visita',          icon:Camera },
     { id:'seguimiento',label:'Seguimiento',        icon:ListChecks },
   ];
   const [secActiva, setSecActiva] = useState('ident');
@@ -2190,7 +2342,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
       <Card style={{ marginBottom:14, padding:22 }}>
         <div style={{ display:'flex', gap:18, alignItems:'flex-start' }}>
-          <FotoThumb fotos={prop.fotos} size={96} radius={14} puntaje={puntaje} />
+          <PortadaThumb prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} size={96} radius={14} puntaje={puntaje} />
           <div style={{ flex:1, minWidth:0 }}>
             <TextInput defaultValue={prop.nombre} onCommit={v=>update('nombre',v)} placeholder="Nombre de la propiedad"
               style={{ fontSize:22, fontWeight:700, border:'none', padding:'0 0 5px', letterSpacing:'-0.01em' }} />
@@ -2252,9 +2404,6 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
       {/* 1. IDENTIFICACIÓN */}
       <Section icon={Info} title="Identificación" open={sec.ident} >
-        <div style={{ marginBottom:16 }}>
-          <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
-        </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:12 }}>
           <Field label="Dirección">
             <DireccionAutocomplete
@@ -2486,14 +2635,12 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         </Section>
       )}
 
-      {/* 7. SEGUIMIENTO */}
-      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} >
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
-          <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
-          <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
+      {/* LA VISITA */}
+      <Section icon={Camera} title="La visita" open={sec.visita} >
+        <div style={{ marginBottom:16 }}>
+          <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
         </div>
-        {isAdmin && <Field label="Flexibilidad escrituración" locked><TextArea defaultValue={prop.flexEscrituracion} onCommit={v=>update('flexEscrituracion',v)} rows={2} /></Field>}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:11, marginTop:14, marginBottom:11, borderTop:`1px solid ${c.border}`, paddingTop:14 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Fecha de la visita"><TextInput type="date" defaultValue={prop.visita?.fecha} onCommit={v=>update('visita.fecha',v)} /></Field>
           <Field label="¿Quién visitó?"><TextInput defaultValue={prop.visita?.quienVisito} onCommit={v=>update('visita.quienVisito',v)} placeholder="Ej: los dos, solo yo..." /></Field>
         </div>
@@ -2507,6 +2654,15 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         </Field>
         <Field label="Escuelas / jardines cercanos"><TextArea defaultValue={prop.escuelas} onCommit={v=>update('escuelas',v)} rows={2} /></Field>
         <Field label="Transporte más cercano"><TextInput defaultValue={prop.transporte} onCommit={v=>update('transporte',v)} placeholder="Subte, tren, colectivos..." /></Field>
+      </Section>
+
+      {/* 7. SEGUIMIENTO */}
+      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} >
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
+          <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
+          <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
+        </div>
+        {isAdmin && <Field label="Flexibilidad escrituración" locked><TextArea defaultValue={prop.flexEscrituracion} onCommit={v=>update('flexEscrituracion',v)} rows={2} /></Field>}
         {isAdmin && (
           <>
             <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:14, marginTop:14 }}>
