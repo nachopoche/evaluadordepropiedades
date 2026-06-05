@@ -289,45 +289,45 @@ const ONBOARDING_SLIDES = [
 const GUIA_SECCIONES = [
   {
     id: 'cargar',
-    titulo: 'Cargar una propiedad',
+    titulo: 'Cargar Propiedades',
     emoji: '🏠',
-    contenido: 'Tenés dos formas.\n\n**Manual:** tocás "+ Nueva propiedad" y completás los campos a mano.\n\n**✨ Carga Rápida con IA:** copiás todo el texto de un aviso de Zonaprop, Argenprop o MercadoLibre, lo pegás, y Valora completa solo precio, m², ambientes, dirección, comodidades y más. Los campos que la IA dedujo quedan marcados con ✨ para que les des un vistazo. Todo es editable después.\n\nPowered by Claude AI.',
+    contenido: 'Hay dos formas de cargar una propiedad.\n\n**A mano:** tocás "+ Nueva propiedad" y completás los campos.\n\n**Con Carga Rápida ✨:** copiás el texto del aviso, lo pegás, y Valora completa precio, m², ambientes, dirección, comodidades y más. Los campos completados por IA quedan marcados con ✨ para que los revises. Todo es editable después.',
   },
   {
-    id: 'pesos-excluyentes',
-    titulo: 'Pesos vs Excluyentes',
+    id: 'criterio',
+    titulo: 'Tu Criterio',
     emoji: '⚖️',
-    contenido: 'Son dos cosas distintas y es la clave de Valora:\n\n• **Excluyentes** son de sí o no, tus innegociables. Si una propiedad no cumple uno (ej: necesitás cochera y no tiene), Valora lo señala con una alerta.\n\n• **Pesos** son cuánto te importa cada criterio, del 1 al 5. Le ponés más peso a lo que más valorás.\n\nEl puntaje final combina la nota que le diste a cada criterio con su peso: Σ(puntaje × peso) / Σ(10 × peso) × 100.\n\nEjemplo: "Luz natural" con peso 5 y nota 8/10 pesa mucho más que "Antigüedad" con peso 1 y nota 9/10.',
+    contenido: 'Valora evalúa cada propiedad con dos herramientas distintas.\n\n**Excluyentes** son condiciones de sí o no. Si marcás una como activa y una propiedad no la cumple, Valora lo señala con una alerta.\n\n**Pesos** indican cuánto te importa cada criterio, del 1 al 5. Cuanto mayor el peso, más influye ese criterio en el puntaje final.\n\nEl puntaje de cada propiedad combina la nota que le diste a cada criterio con el peso que le asignaste.',
   },
   {
-    id: 'financiero',
-    titulo: 'Análisis Financiero',
+    id: 'ranking-comparador',
+    titulo: 'Ranking y Comparador',
+    emoji: '🏆',
+    contenido: 'El **Ranking** ordena tus propiedades de mayor a menor puntaje. Las que no cumplen un excluyente activo aparecen señaladas.\n\nEl **Comparador** te permite seleccionar hasta 5 propiedades y verlas lado a lado: puntaje, precio, precio por m², análisis financiero, días en el mercado, views por día y más. La mejor opción de cada fila se resalta en verde.',
+  },
+  {
+    id: 'precio-mercado',
+    titulo: 'Precio Real y Semáforo de Mercado',
     emoji: '💰',
-    contenido: 'Valora calcula cuánto te sale comprar en total: precio pedido + comisión + gastos de escritura (los porcentajes los configurás vos en Configuración). Lo compara con tu presupuesto disponible y te dice si te sobra, te ajusta o te falta.\n\nTambién muestra el precio por m² del aviso contra el promedio del barrio (índice Zonaprop, mayo 2026). Si el aviso está más caro que el barrio, tenés argumento para negociar.',
-  },
-  {
-    id: 'mercado',
-    titulo: 'En el Mercado',
-    emoji: '📊',
-    contenido: 'Dos señales para negociar mejor:\n\n• **Semáforo de demanda:** qué tan rápido suben las visualizaciones del aviso. Frío (< 10 views/día) = más margen para ofertar. Caliente (> 30 views/día) = hay interés, apurate.\n\n• **Historial de precio:** si el dueño ya bajó el precio una o más veces, es señal de que está dispuesto a negociar. Cada entrada que cargás queda registrada con fecha y monto.',
+    contenido: 'El **precio real** es el costo total de comprar: precio del aviso más comisión y gastos de escritura (los porcentajes se configuran en Configuración). Valora lo compara con tu presupuesto disponible e indica si entra en tu rango.\n\nTambién compara el precio por m² del aviso con el promedio del barrio.\n\nEl **Semáforo de Mercado** muestra dos indicadores:\n\n**Demanda:** la velocidad con que crecen las visualizaciones del aviso (views por día).\n\n**Historial de precio:** las variaciones de precio que registraste, con fecha y monto.',
   },
   {
     id: 'mapa',
     titulo: 'Mapa y Distancias',
     emoji: '🗺️',
-    contenido: 'Cargás la dirección de la propiedad y Valora te muestra el mapa y calcula las distancias a los lugares que te importan: trabajo, escuela, casa de familiares, o lo que configures.\n\nEs info que ningún portal te da junta. Sirve para comparar ubicaciones reales en minutos de traslado, no solo por barrio.\n\nAgregar tus lugares de referencia desde Configuración.',
+    contenido: 'Al cargar la dirección de una propiedad, Valora muestra su ubicación en el mapa y calcula la distancia a los lugares de referencia que hayas configurado (trabajo, escuela, u otros).\n\nLos lugares de referencia se configuran una vez en Configuración y se aplican a todas las propiedades.',
   },
   {
-    id: 'comparador',
-    titulo: 'El Comparador',
+    id: 'busqueda',
+    titulo: 'Tu Búsqueda',
     emoji: '🔍',
-    contenido: 'Desde Ranking marcás hasta 5 propiedades y las ves lado a lado en una tabla: puntaje, precio, precio por m², análisis financiero, días en mercado, views por día y más.\n\nLa mejor opción de cada fila se resalta en verde para que veas de un vistazo cuál gana en qué. En mobile podés navegar de una propiedad a la otra con las flechas.',
+    contenido: 'Herramientas para organizar el seguimiento de tu búsqueda.\n\n**Favoritas:** marcá propiedades con el corazón para filtrarlas rápido.\n\n**Descartar y Eliminar:** descartar envía la propiedad a la sección Descartadas, desde donde podés recuperarla. Eliminar la borra de forma permanente.\n\n**Estados:** cada propiedad tiene un estado de seguimiento — Para visitar, Visitada, Oferta hecha, En negociación. Tras la visita podés registrar tu impresión, fotos y notas.',
   },
   {
     id: 'config',
-    titulo: 'Presupuesto y Configuración',
+    titulo: 'Configuración',
     emoji: '⚙️',
-    contenido: 'En **Presupuesto** cargás tus fuentes de fondos una sola vez: venta de tu propiedad actual (rango mínimo y máximo), ahorros propios y aportes adicionales. Valora suma todo y lo usa para el análisis financiero de cada propiedad.\n\nEn **Configuración** personalizás Valora: criterios de evaluación, excluyentes activos, porcentajes de comisión y gastos, y tus lugares de referencia para el mapa.\n\nTodo esto es privado — solo lo ves vos.',
+    contenido: 'Desde Configuración ajustás los parámetros de Valora.\n\n**Presupuesto:** tus fuentes de fondos (venta de propiedad actual, ahorros, aportes). Valora las suma para el análisis financiero.\n\n**Criterios y excluyentes:** qué se evalúa y qué condiciones son obligatorias.\n\n**Comisión y gastos:** los porcentajes que usa el cálculo de precio real.\n\n**Lugares de referencia:** las direcciones para el cálculo de distancias.\n\nAlgunas secciones (presupuesto, notas privadas, datos de negociación) son visibles solo para administradores. Los invitados ven la información pública.',
   },
 ];
 
@@ -508,47 +508,88 @@ const OnboardingModal = ({ onClose }) => {
 // MODAL GUÍA COMPLETA (ícono ?)
 // ============================================================
 
+// Parser de markdown simple: negritas y párrafos
+const renderMarkdown = (texto) => {
+  if (!texto) return null;
+  return texto.split('\n\n').map((parrafo, i) => {
+    const partes = parrafo.split(/\*\*(.+?)\*\*/g);
+    const contenido = partes.map((p, j) => j % 2 === 1 ? <strong key={j}>{p}</strong> : p);
+    return <p key={i} style={{ margin:'0 0 12px', fontSize:14, color:c.textMuted, lineHeight:1.75 }}>{contenido}</p>;
+  });
+};
+
 const GuiaModal = ({ onClose }) => {
+  const isMobile = useIsMobile();
   const [secActiva, setSecActiva] = React.useState(GUIA_SECCIONES[0].id);
   const sec = GUIA_SECCIONES.find(s => s.id === secActiva) || GUIA_SECCIONES[0];
+  const tabsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!isMobile || !tabsRef.current) return;
+    const btn = tabsRef.current.querySelector('[data-active="true"]');
+    if (btn) btn.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+  }, [secActiva, isMobile]);
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'40px 20px', overflow:'auto' }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:c.surface, borderRadius:16, maxWidth:680, width:'100%', boxShadow:'0 20px 60px rgba(30,45,74,0.25)', fontFamily:FONT, overflow:'hidden' }}>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:isMobile?'flex-end':'flex-start', justifyContent:'center', padding:isMobile?0:'40px 20px', overflow:isMobile?'hidden':'auto' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:c.surface, borderRadius:isMobile?'16px 16px 0 0':16, maxWidth:isMobile?undefined:680, width:'100%', boxShadow:'0 20px 60px rgba(30,45,74,0.25)', fontFamily:FONT, overflow:'hidden', display:'flex', flexDirection:'column', maxHeight:isMobile?'92vh':'85vh' }}>
+
         {/* Header */}
-        <div style={{ padding:'20px 24px', borderBottom:`1px solid ${c.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ padding:'18px 20px', borderBottom:`1px solid ${c.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
-            <h2 style={{ margin:0, fontSize:20, fontWeight:700, letterSpacing:'-0.01em' }}>Cómo funciona Valora</h2>
-            <p style={{ margin:'4px 0 0', fontSize:13, color:c.textMuted }}>Guía de uso completa</p>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:700, letterSpacing:'-0.01em' }}>Cómo funciona Valora</h2>
+            <p style={{ margin:'3px 0 0', fontSize:12, color:c.textMuted }}>Guía de uso</p>
           </div>
           <button onClick={onClose} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:4 }}><X size={20} /></button>
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns:'200px 1fr' }}>
-          {/* Sidebar */}
-          <div style={{ borderRight:`1px solid ${c.border}`, padding:'12px 8px' }}>
-            {GUIA_SECCIONES.map(s => (
-              <button key={s.id} onClick={() => setSecActiva(s.id)}
-                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', width:'100%', border:'none', borderRadius:10,
-                  background: secActiva===s.id ? c.accentSoft : 'transparent',
-                  color: secActiva===s.id ? c.accent : c.text,
-                  fontWeight: secActiva===s.id ? 600 : 400,
-                  fontSize:13, fontFamily:FONT, cursor:'pointer', textAlign:'left', transition:'all 150ms' }}
-                onMouseEnter={e=>{ if(secActiva!==s.id) e.currentTarget.style.background=c.surfaceAlt; }}
-                onMouseLeave={e=>{ if(secActiva!==s.id) e.currentTarget.style.background='transparent'; }}>
-                <span style={{ fontSize:16 }}>{s.emoji}</span>
-                {s.titulo}
-              </button>
-            ))}
+        {isMobile ? (
+          <>
+            {/* Tabs horizontales scrolleables */}
+            <div ref={tabsRef} style={{ display:'flex', gap:6, padding:'10px 14px', borderBottom:`1px solid ${c.border}`, overflowX:'auto', flexShrink:0, WebkitOverflowScrolling:'touch', scrollbarWidth:'none' }}>
+              {GUIA_SECCIONES.map(s => (
+                <button key={s.id} data-active={secActiva===s.id} onClick={() => setSecActiva(s.id)}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', border:'none', borderRadius:20, whiteSpace:'nowrap', flexShrink:0,
+                    background: secActiva===s.id ? c.accent : c.surfaceAlt,
+                    color: secActiva===s.id ? 'white' : c.text,
+                    fontWeight: secActiva===s.id ? 600 : 400,
+                    fontSize:13, fontFamily:FONT, cursor:'pointer' }}>
+                  <span style={{ fontSize:14 }}>{s.emoji}</span>
+                  {s.titulo}
+                </button>
+              ))}
+            </div>
+            {/* Contenido */}
+            <div style={{ padding:'20px', overflowY:'auto', flex:1 }}>
+              <h3 style={{ margin:'0 0 14px', fontSize:17, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
+              {renderMarkdown(sec.contenido)}
+            </div>
+          </>
+        ) : (
+          /* Desktop: sidebar + contenido */
+          <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', flex:1, minHeight:0 }}>
+            <div style={{ borderRight:`1px solid ${c.border}`, padding:'12px 8px', overflowY:'auto' }}>
+              {GUIA_SECCIONES.map(s => (
+                <button key={s.id} onClick={() => setSecActiva(s.id)}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', width:'100%', border:'none', borderRadius:10,
+                    background: secActiva===s.id ? c.accentSoft : 'transparent',
+                    color: secActiva===s.id ? c.accent : c.text,
+                    fontWeight: secActiva===s.id ? 600 : 400,
+                    fontSize:13, fontFamily:FONT, cursor:'pointer', textAlign:'left', transition:'background 150ms' }}
+                  onMouseEnter={e=>{ if(secActiva!==s.id) e.currentTarget.style.background=c.surfaceAlt; }}
+                  onMouseLeave={e=>{ if(secActiva!==s.id) e.currentTarget.style.background='transparent'; }}>
+                  <span style={{ fontSize:16 }}>{s.emoji}</span>
+                  {s.titulo}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding:'28px', overflowY:'auto' }}>
+              <div style={{ fontSize:30, marginBottom:12 }}>{sec.emoji}</div>
+              <h3 style={{ margin:'0 0 16px', fontSize:18, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
+              {renderMarkdown(sec.contenido)}
+            </div>
           </div>
-
-          {/* Contenido */}
-          <div style={{ padding:'28px 28px' }}>
-            <div style={{ fontSize:32, marginBottom:12 }}>{sec.emoji}</div>
-            <h3 style={{ margin:'0 0 14px', fontSize:18, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
-            <p style={{ margin:0, fontSize:14, color:c.textMuted, lineHeight:1.8, whiteSpace:'pre-line' }}>{sec.contenido}</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -933,6 +974,8 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 
 const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDescartar, onEliminar, onToggleFavorita }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top:0, right:0 });
+  const btnRef = React.useRef(null);
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos);
   const analisis = calcularAnalisis(prop, presupuesto, config);
@@ -942,6 +985,18 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
     ? (analisis.estado==='rojo'?'#F7C1C1':analisis.estado==='amber'?'#FAC775':'#C0DD97')
     : semaforoBg(puntaje);
   const eColor = prop.estado==='Visitada'?c.green : (prop.estado==='Oferta hecha'||prop.estado==='En negociación')?c.purple : prop.estado==='Descartada'?c.red : c.amber;
+
+  const abrirMenu = (e) => {
+    e.stopPropagation();
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      const menuHeight = 120; // altura estimada del menú
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const top = spaceBelow < menuHeight ? rect.top - menuHeight - 6 : rect.bottom + 6;
+      setMenuPos({ top, right: window.innerWidth - rect.right });
+    }
+    setShowMenu(s => !s);
+  };
 
   return (
     <Card hoverable onClick={onClick} style={{ opacity:!cumple ? 0.55 : 1 }}>
@@ -961,38 +1016,38 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
         )}
         {isAdmin && (
           <div style={{ position:'absolute', top:10, right:10 }} onClick={e=>e.stopPropagation()}>
-            <button onClick={e=>{e.stopPropagation(); setShowMenu(s=>!s);}}
+            <button ref={btnRef} onClick={abrirMenu}
               style={{ width:28, height:28, borderRadius:'50%', background:c.surface, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
               <MoreHorizontal size={14} color={c.textMuted} />
             </button>
-            {showMenu && (
-              <>
-                <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:9 }} />
-                <div style={{ position:'absolute', top:34, right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:10, minWidth:168 }}>
-                  <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
-                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
-                    {prop.favorita ? 'Quitar favorita' : 'Marcar favorita'}
-                  </button>
-                  <button onClick={e=>{e.stopPropagation(); onDescartar(prop.id); setShowMenu(false);}}
-                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <X size={13} /> Descartar
-                  </button>
-                  <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }} />
-                  <button onClick={e=>{e.stopPropagation(); onEliminar(prop.id); setShowMenu(false);}}
-                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.red, textAlign:'left' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.redSoft}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <Trash2 size={13} /> Eliminar
-                  </button>
-                </div>
-              </>
-            )}
           </div>
+        )}
+        {showMenu && (
+          <>
+            <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:99 }} />
+            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:100, minWidth:172 }} onClick={e=>e.stopPropagation()}>
+              <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
+                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
+                {prop.favorita ? 'Quitar favorita' : 'Marcar favorita'}
+              </button>
+              <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onDescartar(prop.id);}}
+                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <X size={13} /> Descartar
+              </button>
+              <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }} />
+              <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onEliminar(prop.id);}}
+                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.red, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.redSoft}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Trash2 size={13} /> Eliminar
+              </button>
+            </div>
+          </>
         )}
         <div style={{ position:'absolute', bottom:10, right:10, background:c.surface, padding:'5px 11px', borderRadius:8, fontSize:18, fontWeight:700, color:colorPuntaje(puntaje), boxShadow:shadow.sm }}>
           {puntaje}
@@ -1261,17 +1316,19 @@ const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
 
 const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, children }) => (
   <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, marginBottom:10, overflow:'hidden', boxShadow:shadow.sm }}>
-    <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
-        {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
-        {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
-        <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
-        {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
-        {badge}
+    {onToggle && (
+      <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
+          {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
+          {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
+          <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
+          {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
+          {badge}
+        </div>
+        {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
       </div>
-      {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
-    </div>
-    {open && <div style={{ padding:'4px 18px 18px', borderTop:`1px solid ${c.border}` }}><div style={{ paddingTop:14 }}>{children}</div></div>}
+    )}
+    {open && <div style={{ padding: onToggle ? '4px 18px 18px' : '16px 18px 18px', borderTop: onToggle ? `1px solid ${c.border}` : 'none' }}><div style={{ paddingTop: onToggle ? 14 : 0 }}>{children}</div></div>}
   </div>
 );
 
@@ -2011,7 +2068,16 @@ const HistorialPrecio = ({ prop, update }) => {
 // ============================================================
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
-  const [sec, setSec] = useState({ ident:true, inmueble:false, mapa:true, financiero:true, mercado:false, evaluacion:true, seguimiento:false });
+  const DETALLE_TABS = [
+    { id:'ident',      label:'Identificación',    icon:Info },
+    { id:'inmueble',   label:'El inmueble',        icon:Ruler },
+    { id:'mapa',       label:'Mapa',               icon:Map },
+    { id:'financiero', label:'Financiero',         icon:Wallet },
+    { id:'mercado',    label:'Mercado',            icon:Clock },
+    ...(isAdmin ? [{ id:'evaluacion', label:'Evaluación', icon:Star }] : []),
+    { id:'seguimiento',label:'Seguimiento',        icon:ListChecks },
+  ];
+  const [secActiva, setSecActiva] = useState('ident');
   const isMobile = useIsMobile();
   const [aiFilled, setAiFilled] = useState([]);
   const [showCargaRapida, setShowCargaRapida] = useState(false);
@@ -2019,7 +2085,9 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const [cargandoIA, setCargandoIA] = useState(false);
   const [errorIA, setErrorIA] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
-  const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
+  // compatibilidad: sec.X === true solo para la sección activa
+  const sec = Object.fromEntries(DETALLE_TABS.map(t => [t.id, t.id === secActiva]));
+  const toggle = k => setSecActiva(k);
   const update = (path, value) => {
     setProp(prev => {
       const keys = path.split('.');
@@ -2159,8 +2227,26 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </div>
 
+      {/* TABS DE NAVEGACIÓN */}
+      <div style={{ display:'flex', gap:4, overflowX:'auto', marginBottom:12, scrollbarWidth:'none', WebkitOverflowScrolling:'touch', padding:'2px 0' }}>
+        {DETALLE_TABS.map(t => {
+          const IconTab = t.icon;
+          const activo = secActiva === t.id;
+          return (
+            <button key={t.id} onClick={() => setSecActiva(t.id)}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', border:`1px solid ${activo ? c.accent : c.border}`, borderRadius:20, whiteSpace:'nowrap', flexShrink:0, cursor:'pointer', fontFamily:FONT, fontSize:13, fontWeight: activo ? 600 : 400,
+                background: activo ? c.accentSoft : c.surface,
+                color: activo ? c.accent : c.textMuted,
+                transition:'all 150ms' }}>
+              <IconTab size={13} />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* 1. IDENTIFICACIÓN */}
-      <Section icon={Info} title="Identificación" open={sec.ident} onToggle={()=>toggle('ident')}>
+      <Section icon={Info} title="Identificación" open={sec.ident} >
         <div style={{ marginBottom:16 }}>
           <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
         </div>
@@ -2219,7 +2305,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       </Section>
 
       {/* 2. EL INMUEBLE */}
-      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} onToggle={()=>toggle('inmueble')}>
+      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:11 }}>
           <Field label="m² cubiertos"><TextInput type="number" defaultValue={prop.m2Cubiertos} onCommit={v=>update('m2Cubiertos',v)} /></Field>
           <Field label="m² descubiertos"><TextInput type="number" defaultValue={prop.m2Descubiertos} onCommit={v=>update('m2Descubiertos',v)} /></Field>
@@ -2300,12 +2386,12 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       </Section>
 
       {/* 3. MAPA Y DISTANCIAS */}
-      <Section icon={Map} title="Mapa y Distancias" open={sec.mapa} onToggle={()=>toggle('mapa')}>
+      <Section icon={Map} title="Mapa y Distancias" open={sec.mapa} >
         <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
       </Section>
 
       {/* 4. ANÁLISIS FINANCIERO */}
-      <Section icon={Wallet} title="Análisis Financiero" open={sec.financiero} onToggle={()=>toggle('financiero')}>
+      <Section icon={Wallet} title="Análisis Financiero" open={sec.financiero} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
@@ -2375,7 +2461,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       </Section>
 
       {/* 5. EN EL MERCADO */}
-      <Section icon={Clock} title="En el Mercado" open={sec.mercado} onToggle={()=>toggle('mercado')}>
+      <Section icon={Clock} title="En el Mercado" open={sec.mercado} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:11, marginBottom:14 }}>
           <Field label="Fecha de publicación"><TextInput type="date" defaultValue={prop.fechaPublicacion} onCommit={v=>update('fechaPublicacion',v)} /></Field>
           <Field label="Views actuales"><TextInput type="number" defaultValue={prop.views} onCommit={v=>update('views',v)} /></Field>
@@ -2388,7 +2474,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
       {/* 6. EVALUACIÓN VALORA */}
       {isAdmin && (
-        <Section icon={Star} title="Evaluación Valora" locked preview={`${criterios.length} criterios`} open={sec.evaluacion} onToggle={()=>toggle('evaluacion')}>
+        <Section icon={Star} title="Evaluación Valora" locked preview={`${criterios.length} criterios`} open={sec.evaluacion} >
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
             {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
           </div>
@@ -2396,7 +2482,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
       )}
 
       {/* 7. SEGUIMIENTO */}
-      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} onToggle={()=>toggle('seguimiento')}>
+      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
           <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
