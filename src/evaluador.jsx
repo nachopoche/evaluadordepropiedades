@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal } from 'lucide-react';
 import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
@@ -1022,10 +1023,10 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
             </button>
           </div>
         )}
-        {showMenu && menuPos && (
+        {showMenu && menuPos && createPortal(
           <>
-            <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:99 }} />
-            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:100, minWidth:156 }} onClick={e=>e.stopPropagation()}>
+            <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:9998 }} />
+            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:9999, minWidth:156, fontFamily:FONT }} onClick={e=>e.stopPropagation()}>
               <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
                 style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' }}
                 onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
@@ -1047,7 +1048,8 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
                 <Trash2 size={12} /> Eliminar
               </button>
             </div>
-          </>
+          </>,
+          document.body
         )}
         <div style={{ position:'absolute', bottom:10, right:10, background:c.surface, padding:'5px 11px', borderRadius:8, fontSize:18, fontWeight:700, color:colorPuntaje(puntaje), boxShadow:shadow.sm }}>
           {puntaje}
