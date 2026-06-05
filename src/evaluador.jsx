@@ -974,7 +974,7 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 
 const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDescartar, onEliminar, onToggleFavorita }) => {
   const [showMenu, setShowMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top:0, right:0 });
+  const [menuPos, setMenuPos] = useState(null);
   const btnRef = React.useRef(null);
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos);
@@ -988,14 +988,14 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
 
   const abrirMenu = (e) => {
     e.stopPropagation();
+    if (showMenu) { setShowMenu(false); return; }
     const rect = btnRef.current?.getBoundingClientRect();
-    if (rect) {
-      const menuHeight = 120; // altura estimada del menú
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const top = spaceBelow < menuHeight ? rect.top - menuHeight - 6 : rect.bottom + 6;
-      setMenuPos({ top, right: window.innerWidth - rect.right });
-    }
-    setShowMenu(s => !s);
+    if (!rect) return;
+    const menuHeight = 120;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow < menuHeight ? rect.top - menuHeight - 6 : rect.bottom + 6;
+    setMenuPos({ top, right: window.innerWidth - rect.right });
+    setShowMenu(true);
   };
 
   return (
@@ -1022,29 +1022,29 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
             </button>
           </div>
         )}
-        {showMenu && (
+        {showMenu && menuPos && (
           <>
             <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:99 }} />
-            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:100, minWidth:172 }} onClick={e=>e.stopPropagation()}>
+            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:100, minWidth:156 }} onClick={e=>e.stopPropagation()}>
               <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
-                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' }}
                 onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
+                <Heart size={12} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
                 {prop.favorita ? 'Quitar favorita' : 'Marcar favorita'}
               </button>
               <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onDescartar(prop.id);}}
-                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' }}
                 onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <X size={13} /> Descartar
+                <X size={12} /> Descartar
               </button>
-              <div style={{ borderTop:`1px solid ${c.border}`, margin:'4px 0' }} />
+              <div style={{ borderTop:`1px solid ${c.border}`, margin:'3px 0' }} />
               <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onEliminar(prop.id);}}
-                style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 10px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.red, textAlign:'left' }}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.red, textAlign:'left' }}
                 onMouseEnter={e=>e.currentTarget.style.background=c.redSoft}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <Trash2 size={13} /> Eliminar
+                <Trash2 size={12} /> Eliminar
               </button>
             </div>
           </>
@@ -1314,23 +1314,26 @@ const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
 // SECCION COLAPSABLE
 // ============================================================
 
-const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, children }) => (
-  <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, marginBottom:10, overflow:'hidden', boxShadow:shadow.sm }}>
-    {onToggle && (
-      <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
-          {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
-          {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
-          <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
-          {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
-          {badge}
+const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, children }) => {
+  if (!open && !onToggle) return null;
+  return (
+    <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, marginBottom:10, overflow:'hidden', boxShadow:shadow.sm }}>
+      {onToggle && (
+        <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
+            {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
+            {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
+            <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
+            {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
+            {badge}
+          </div>
+          {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
         </div>
-        {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
-      </div>
-    )}
-    {open && <div style={{ padding: onToggle ? '4px 18px 18px' : '16px 18px 18px', borderTop: onToggle ? `1px solid ${c.border}` : 'none' }}><div style={{ paddingTop: onToggle ? 14 : 0 }}>{children}</div></div>}
-  </div>
-);
+      )}
+      {open && <div style={{ padding: onToggle ? '4px 18px 18px' : '16px 18px 18px', borderTop: onToggle ? `1px solid ${c.border}` : 'none' }}><div style={{ paddingTop: onToggle ? 14 : 0 }}>{children}</div></div>}
+    </div>
+  );
+};
 
 
 // ============================================================
@@ -2086,7 +2089,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const [errorIA, setErrorIA] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
   // compatibilidad: sec.X === true solo para la sección activa
-  const sec = Object.fromEntries(DETALLE_TABS.map(t => [t.id, t.id === secActiva]));
+  const sec = Object.fromEntries(DETALLE_TABS.map(t => [t.id, secActiva !== null && t.id === secActiva]));
   const toggle = k => setSecActiva(k);
   const update = (path, value) => {
     setProp(prev => {
@@ -2233,12 +2236,12 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           const IconTab = t.icon;
           const activo = secActiva === t.id;
           return (
-            <button key={t.id} onClick={() => setSecActiva(t.id)}
-              style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', border:`1px solid ${activo ? c.accent : c.border}`, borderRadius:20, whiteSpace:'nowrap', flexShrink:0, cursor:'pointer', fontFamily:FONT, fontSize:13, fontWeight: activo ? 600 : 400,
+            <button key={t.id} onClick={() => setSecActiva(activo ? null : t.id)}
+              style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 11px', border:`1px solid ${activo ? c.accent : c.border}`, borderRadius:20, whiteSpace:'nowrap', flexShrink:0, cursor:'pointer', fontFamily:FONT, fontSize:12, fontWeight: activo ? 600 : 400,
                 background: activo ? c.accentSoft : c.surface,
                 color: activo ? c.accent : c.textMuted,
                 transition:'all 150ms' }}>
-              <IconTab size={13} />
+              <IconTab size={12} />
               {t.label}
             </button>
           );
