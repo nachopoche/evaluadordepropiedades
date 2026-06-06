@@ -2372,16 +2372,15 @@ const HistorialPrecio = ({ prop, update }) => {
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
   const DETALLE_TABS = [
-    { id:'ident',      label:'Identificación',    icon:Info },
+    { id:'decision',   label:'Decisión',           icon:Navigation },
     { id:'inmueble',   label:'El inmueble',        icon:Ruler },
     { id:'mapa',       label:'Mapa',               icon:Map },
-    { id:'financiero', label:'Financiero',         icon:Wallet },
-    { id:'mercado',    label:'Mercado',            icon:Clock },
-    { id:'evaluacion', label:'Valoración', icon:Star },
+    { id:'evaluacion', label:'Valoración',         icon:Star },
+    { id:'precio',     label:'Precio',             icon:Wallet },
     { id:'visita',     label:'La visita',          icon:Camera },
     { id:'seguimiento',label:'Seguimiento',        icon:ListChecks },
   ];
-  const [secActiva, setSecActiva] = useState('ident');
+  const [secActiva, setSecActiva] = useState('decision');
   const isMobile = useIsMobile();
   const [aiFilled, setAiFilled] = useState([]);
   const [showCargaRapida, setShowCargaRapida] = useState(false);
@@ -2549,8 +2548,20 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         })}
       </div>
 
-      {/* 1. IDENTIFICACIÓN */}
-      <Section icon={Info} title="Identificación" open={sec.ident} >
+      {/* DECISIÓN (resumen de solo lectura — contenido en Tanda C) */}
+      <Section icon={Navigation} title="Decisión" open={sec.decision} >
+        <div style={{ padding:'24px 4px', textAlign:'center', color:c.textMuted }}>
+          <Navigation size={26} style={{ color:c.textSubtle, marginBottom:10 }} />
+          <div style={{ fontSize:14, fontWeight:600, color:c.text, marginBottom:6 }}>El resumen de tu decisión vivirá acá</div>
+          <div style={{ fontSize:13, lineHeight:1.6, maxWidth:420, margin:'0 auto' }}>
+            El porqué del score, la lectura de mercado, los datos clave y la comparación con el resto de tu lista — todo junto, de un vistazo.
+          </div>
+        </div>
+      </Section>
+
+      {/* EL INMUEBLE (con Identificación adentro) */}
+      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} >
+        <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Identificación</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:12 }}>
           <Field label="Dirección">
             <DireccionAutocomplete
@@ -2603,10 +2614,9 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             </div>
           </div>
         )}
-      </Section>
-
-      {/* 2. EL INMUEBLE */}
-      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} >
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginTop:4, marginBottom:10 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted }}>Datos físicos</div>
+        </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:11 }}>
           <Field label="m² cubiertos"><TextInput type="number" defaultValue={prop.m2Cubiertos} onCommit={v=>update('m2Cubiertos',v)} /></Field>
           <Field label="m² descubiertos"><TextInput type="number" defaultValue={prop.m2Descubiertos} onCommit={v=>update('m2Descubiertos',v)} /></Field>
@@ -2691,8 +2701,9 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
       </Section>
 
-      {/* 4. ANÁLISIS FINANCIERO */}
-      <Section icon={Wallet} title="Análisis Financiero" open={sec.financiero} >
+      {/* PRECIO (Financiero + Mercado) */}
+      <Section icon={Wallet} title="Precio" open={sec.precio} >
+        <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Precio y compra</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
@@ -2759,10 +2770,9 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             </div>
           </>
         )}
-      </Section>
-
-      {/* 5. EN EL MERCADO */}
-      <Section icon={Clock} title="En el Mercado" open={sec.mercado} >
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginTop:14, marginBottom:12 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted }}>El aviso</div>
+        </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:11, marginBottom:14 }}>
           <Field label="Fecha de publicación"><TextInput type="date" defaultValue={prop.fechaPublicacion} onCommit={v=>update('fechaPublicacion',v)} /></Field>
           <Field label="Views actuales"><TextInput type="number" defaultValue={prop.views} onCommit={v=>update('views',v)} /></Field>
