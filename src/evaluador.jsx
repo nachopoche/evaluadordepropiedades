@@ -1304,7 +1304,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
 // ============================================================
 
 const subirBlobPortada = async (blob, userId, propId) => {
-  const storageRef = ref(storage, `portadas/${userId}/${propId}/${Date.now()}.jpg`);
+  const storageRef = ref(storage, `properties/${userId}/${propId}/portada-${Date.now()}.jpg`);
   const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
   await new Promise((resolve, reject) => task.on('state_changed', null, reject, resolve));
   return getDownloadURL(task.snapshot.ref);
@@ -1314,6 +1314,7 @@ const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
   const [dims, setDims] = useState(null);
   const [crop, setCrop] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
   const imgRef = React.useRef(null);
   const natural = React.useRef({ w:0, h:0 });
   const drag = React.useRef(null);
@@ -1372,6 +1373,7 @@ const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
   const confirmar = async () => {
     if (!crop || !dims) return;
     setBusy(true);
+    setError(null);
     try {
       const scale = natural.current.w / dims.dw;
       const outW = Math.round(crop.w * scale), outH = Math.round(crop.h * scale);
@@ -1382,7 +1384,10 @@ const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
       canvas.getContext('2d').drawImage(imgRef.current, crop.x*scale, crop.y*scale, crop.w*scale, crop.h*scale, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', QUALITY));
       await onConfirm(blob);
-    } catch { setBusy(false); }
+    } catch {
+      setError('No se pudo guardar la portada. Probá de nuevo.');
+      setBusy(false);
+    }
   };
 
   return createPortal(
@@ -1403,6 +1408,7 @@ const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
           </>}
         </div>
       )}
+      {error && <div style={{ color:'#ff8a8a', fontSize:12, marginTop:12 }}>{error}</div>}
       <div style={{ display:'flex', gap:10, marginTop:18 }}>
         <button onClick={onCancel} disabled={busy}
           style={{ padding:'10px 18px', borderRadius:10, border:'1px solid rgba(255,255,255,0.3)', background:'transparent', color:'white', cursor:'pointer', fontSize:13, fontFamily:FONT }}>Cancelar</button>
@@ -1431,12 +1437,11 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
   };
 
   const guardar = async (blob) => {
-    try {
-      const nuevaUrl = await subirBlobPortada(blob, userId, propId);
-      if (url) { try { await deleteObject(ref(storage, url)); } catch { /* ignore */ } }
-      update('portada', nuevaUrl);
-      trackEvent(uid, 'fotosSubidas');
-    } finally { setEditSrc(null); }
+    const nuevaUrl = await subirBlobPortada(blob, userId, propId);
+    if (url) { try { await deleteObject(ref(storage, url)); } catch { /* ignore */ } }
+    update('portada', nuevaUrl);
+    trackEvent(uid, 'fotosSubidas');
+    setEditSrc(null);
   };
 
   return (
@@ -1760,17 +1765,13 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
       {fotos.length > 0 && (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:8, marginBottom:12 }}>
           {fotos.map((url, i) => (
-            <div key={url} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt }}>
-              <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', cursor:'pointer' }} onClick={()=>abrirLightbox(i)} />
+            <div key={url} onClick={()=>abrirLightbox(i)} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt, cursor:'pointer' }}>
+              <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
               {isAdmin && (
-                <div className="foto-overlay" style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0)', display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:0, transition:'all 150ms' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(0,0,0,0.48)';e.currentTarget.style.opacity='1';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='rgba(0,0,0,0)';e.currentTarget.style.opacity='0';}}>
-                  <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
-                    style={{ background:c.red, border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white' }}>
-                    <X size={14} />
-                  </button>
-                </div>
+                <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
+                  style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white', padding:0 }}>
+                  <X size={14} />
+                </button>
               )}
             </div>
           ))}
@@ -1808,7 +1809,7 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
           </button>
         </div>
       )}
-      {isAdmin && fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Hover para eliminar · Click para ampliar</div>}
+      {isAdmin && fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Tocá una foto para ampliar · la ✕ para borrar</div>}
       {lightboxIdx !== null && (
         <Lightbox fotos={fotos} index={lightboxIdx} onClose={cerrarLightbox} onPrev={prevFoto} onNext={nextFoto} />
       )}
