@@ -1494,10 +1494,11 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
     setEditSrc(null);
   };
 
-  const menuBtn = { display:'flex', alignItems:'center', gap:8, width:'100%', padding:'9px 11px', border:'none', background:'transparent', borderRadius:8, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' };
+  const menuBtn = { display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 9px', border:'none', background:'transparent', borderRadius:8, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' };
+  const slotRef = React.useRef(null);
 
   return (
-    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}
+    <div ref={slotRef} style={{ position:'relative', width:size, height:size, flexShrink:0 }}
       onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}>
       {url ? (
         <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden' }}>
@@ -1513,30 +1514,36 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
           <button onClick={onSlotClick} title={url?'Cambiar portada':'Agregar portada'}
             style={{ position:'absolute', inset:0, borderRadius:radius, border:'none', cursor:'pointer',
               background: url ? (hover||menuOpen?'rgba(0,0,0,0.45)':'transparent') : 'transparent',
-              display:'flex', alignItems: url?'flex-end':'center', justifyContent:'center', padding:6,
+              display:'flex', alignItems:'flex-end', justifyContent:'center', padding:6,
               opacity: url ? (hover||menuOpen?1:0) : 1, transition:'all 150ms' }}>
             {!url
               ? <span style={{ fontSize:10, fontWeight:600, color:colorPuntaje(puntaje||0) }}>+ portada</span>
               : <span style={{ fontSize:10, fontWeight:600, color:'white', background:'rgba(0,0,0,0.55)', padding:'3px 7px', borderRadius:6, display:'flex', alignItems:'center', gap:4 }}><Crop size={11} /> Cambiar</span>}
           </button>
           <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={elegir} />
-          {menuOpen && !isMobile && (
-            <>
-              <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
-              <div style={{ position:'absolute', top:size+8, left:0, zIndex:41, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 8px 24px rgba(30,45,74,0.16)', padding:6, minWidth:210 }}>
-                <button onClick={pegarDesdePortapapeles} style={menuBtn}
-                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <Clipboard size={15} style={{ color:c.accent }} />
-                  <span>Pegar captura <span style={{ color:c.textMuted, fontWeight:400 }}>(o Ctrl+V)</span></span>
-                </button>
-                <button onClick={()=>{ setMenuOpen(false); fileRef.current?.click(); }} style={menuBtn}
-                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <ImageIcon size={15} style={{ color:c.textMuted }} />
-                  <span>Elegir archivo</span>
-                </button>
-                {menuMsg && <div style={{ fontSize:11, color:c.red, padding:'6px 11px 4px' }}>{menuMsg}</div>}
-              </div>
-            </>
+          {menuOpen && !isMobile && createPortal(
+            (() => {
+              const r = slotRef.current?.getBoundingClientRect() || { bottom:100, left:0 };
+              return (
+                <>
+                  <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:400 }} />
+                  <div style={{ position:'fixed', top:r.bottom+6, left:r.left, zIndex:401, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:'0 8px 24px rgba(30,45,74,0.16)', padding:4, minWidth:178 }}>
+                    <button onClick={pegarDesdePortapapeles} style={menuBtn}
+                      onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <Clipboard size={14} style={{ color:c.accent }} />
+                      <span>Pegar captura <span style={{ color:c.textMuted, fontWeight:400 }}>(o Ctrl+V)</span></span>
+                    </button>
+                    <button onClick={()=>{ setMenuOpen(false); fileRef.current?.click(); }} style={menuBtn}
+                      onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <ImageIcon size={14} style={{ color:c.textMuted }} />
+                      <span>Elegir archivo</span>
+                    </button>
+                    {menuMsg && <div style={{ fontSize:11, color:c.red, padding:'4px 9px 4px' }}>{menuMsg}</div>}
+                  </div>
+                </>
+              );
+            })(),
+            document.body
           )}
         </>
       )}
