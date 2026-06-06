@@ -1612,6 +1612,7 @@ const SemaforoDemanda = ({ prop, update }) => {
   const historial = prop.aviso?.historialViews || [];
   const [nuevaFecha, setNuevaFecha] = React.useState('');
   const [nuevasViews, setNuevasViews] = React.useState('');
+  const [showTip, setShowTip] = React.useState(false);
 
   const agregarRegistro = () => {
     if (!nuevaFecha || !nuevasViews) return;
@@ -1626,22 +1627,21 @@ const SemaforoDemanda = ({ prop, update }) => {
     update('aviso.historialViews', historial.filter((_,idx) => idx !== i));
   };
 
-  // Calcular semáforo
-  let semaforo = null;
-  if (historial.length >= 2) {
-    const primero = historial[0];
-    const ultimo = historial[historial.length - 1];
-    const diffDias = Math.max(1, (new Date(ultimo.fecha) - new Date(primero.fecha)) / (1000*60*60*24));
-    const viewsXDia = (ultimo.views - primero.views) / diffDias;
-    if (viewsXDia < 10) semaforo = { color: c.red, bg: c.redSoft, emoji: '🔴', label: 'Frío', desc: 'Pocas visitas. El aviso puede llevar tiempo o no estar bien posicionado.', valor: viewsXDia };
-    else if (viewsXDia <= 30) semaforo = { color: c.amber, bg: c.amberSoft, emoji: '🟡', label: 'Normal', desc: 'Flujo habitual. Demanda promedio para la zona y tipo.', valor: viewsXDia };
-    else semaforo = { color: c.green, bg: c.greenSoft, emoji: '🟢', label: 'Caliente', desc: 'Mucho interés. Probable que se venda rápido o que el precio se mantenga firme.', valor: viewsXDia };
-  }
-
   // Días en el mercado
   const diasMercado = prop.fechaPublicacion
-    ? Math.floor((new Date() - new Date(prop.fechaPublicacion)) / (1000*60*60*24))
+    ? Math.max(1, Math.floor((new Date() - new Date(prop.fechaPublicacion)) / (1000*60*60*24)))
     : null;
+
+  // Semáforo: promedio de visitas por día desde la publicación.
+  // Usa la última carga de views (último registro del historial o, si no hay, el campo Views actuales).
+  const viewsActuales = historial.length ? historial[historial.length - 1].views : (parseInt(prop.views) || null);
+  let semaforo = null;
+  if (viewsActuales != null && diasMercado) {
+    const prom = viewsActuales / diasMercado;
+    if (prom < 10) semaforo = { color: c.red, bg: c.redSoft, emoji: '🔴', label: 'Poco interés', valor: prom };
+    else if (prom <= 30) semaforo = { color: c.amber, bg: c.amberSoft, emoji: '🟡', label: 'Interés normal', valor: prom };
+    else semaforo = { color: c.green, bg: c.greenSoft, emoji: '🟢', label: 'Muy buscado', valor: prom };
+  }
 
   return (
     <div>
@@ -1653,11 +1653,24 @@ const SemaforoDemanda = ({ prop, update }) => {
 
       {semaforo && (
         <div style={{ marginBottom:14, padding:14, background:semaforo.bg, borderRadius:12, border:`1px solid ${semaforo.color}30` }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ fontSize:16 }}>{semaforo.emoji}</span>
             <span style={{ fontWeight:600, fontSize:14, color:semaforo.color }}>{semaforo.label} · {semaforo.valor.toFixed(1)} views/día</span>
+            <span style={{ position:'relative', marginLeft:'auto', display:'inline-flex' }}>
+              <span
+                onMouseEnter={()=>setShowTip(true)} onMouseLeave={()=>setShowTip(false)} onClick={()=>setShowTip(s=>!s)}
+                style={{ cursor:'help', width:18, height:18, borderRadius:'50%', border:`1px solid ${semaforo.color}`, color:semaforo.color, fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center' }}
+              >?</span>
+              {showTip && (
+                <div style={{ position:'absolute', right:0, top:24, width:240, padding:'10px 12px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', zIndex:30, fontSize:11.5, lineHeight:1.5, color:c.textMuted, fontWeight:400, textAlign:'left' }}>
+                  Promedio de visitas por día del aviso desde que se publicó.<br/>
+                  <strong style={{ color:c.red }}>Menos de 10:</strong> poco mirado, suele haber más margen para negociar.<br/>
+                  <strong style={{ color:c.amber }}>10 a 30:</strong> interés normal.<br/>
+                  <strong style={{ color:c.green }}>Más de 30:</strong> muy buscado, probablemente bien de precio y con más competencia.
+                </div>
+              )}
+            </span>
           </div>
-          <div style={{ fontSize:12, color:semaforo.color, opacity:0.85 }}>{semaforo.desc}</div>
         </div>
       )}
       {historial.length === 1 && (
@@ -2364,7 +2377,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
     { id:'mapa',       label:'Mapa',               icon:Map },
     { id:'financiero', label:'Financiero',         icon:Wallet },
     { id:'mercado',    label:'Mercado',            icon:Clock },
-    ...(isAdmin ? [{ id:'evaluacion', label:'Evaluación', icon:Star }] : []),
+    { id:'evaluacion', label:'Valoración', icon:Star },
     { id:'visita',     label:'La visita',          icon:Camera },
     { id:'seguimiento',label:'Seguimiento',        icon:ListChecks },
   ];
@@ -2760,14 +2773,12 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <HistorialPrecio prop={prop} update={update} />
       </Section>
 
-      {/* 6. EVALUACIÓN VALORA */}
-      {isAdmin && (
-        <Section icon={Star} title="Evaluación Valora" locked preview={`${criterios.length} criterios`} open={sec.evaluacion} >
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
-            {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
-          </div>
-        </Section>
-      )}
+      {/* VALORACIÓN */}
+      <Section icon={Star} title="Valoración" preview={`${criterios.length} criterios`} open={sec.evaluacion} >
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
+          {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
+        </div>
+      </Section>
 
       {/* LA VISITA */}
       <Section icon={Camera} title="La visita" open={sec.visita} >
