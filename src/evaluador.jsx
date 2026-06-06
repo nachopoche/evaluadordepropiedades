@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop, Play } from 'lucide-react';
 import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -1427,6 +1427,30 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
   const [hover, setHover] = useState(false);
   const url = prop.portada;
 
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    const onPaste = (e) => {
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of items) {
+        if (it.type && it.type.startsWith('image/')) {
+          const file = it.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = () => setEditSrc(reader.result);
+            reader.readAsDataURL(file);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [isAdmin]);
+
   const elegir = (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -1654,6 +1678,10 @@ const SemaforoDemanda = ({ prop, update }) => {
 const MAX_FOTOS = 10;
 const MAX_W = 1600;
 const QUALITY = 0.85;
+const MAX_VIDEOS = 3;
+const MAX_VIDEO_MB = 50;
+const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
+const esVideoUrl = (url) => /\.(mp4|mov|webm|m4v|3gp|quicktime)(\?|$)/i.test(url || '');
 
 const comprimirImagen = (file) => new Promise((resolve, reject) => {
   const img = new Image();
@@ -1688,7 +1716,10 @@ const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
       <button onClick={(e)=>{e.stopPropagation();onPrev();}} style={{ position:'absolute', left:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
         <ChevronDown size={22} style={{ transform:'rotate(90deg)' }} />
       </button>
-      <img onClick={e=>e.stopPropagation()} src={fotos[index]} alt="" style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, objectFit:'contain', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+      {esVideoUrl(fotos[index])
+        ? <video onClick={e=>e.stopPropagation()} src={fotos[index]} controls autoPlay playsInline style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+        : <img onClick={e=>e.stopPropagation()} src={fotos[index]} alt="" style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, objectFit:'contain', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+      }
       <button onClick={(e)=>{e.stopPropagation();onNext();}} style={{ position:'absolute', right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
         <ChevronDown size={22} style={{ transform:'rotate(-90deg)' }} />
       </button>
@@ -1712,6 +1743,7 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const fileRef = React.useRef();
   const camRef = React.useRef();
+  const camVideoRef = React.useRef();
 
   const abrirLightbox = (i) => setLightboxIdx(i);
   const cerrarLightbox = () => setLightboxIdx(null);
@@ -1722,21 +1754,42 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
     const disponibles = MAX_FOTOS - fotos.length;
     const seleccionadas = Array.from(files).slice(0, disponibles);
     if (seleccionadas.length === 0) return;
+    let actuales = [...(prop.fotos || [])];
     for (const file of seleccionadas) {
       const tempId = `${Date.now()}-${Math.random()}`;
+      const esVid = file.type.startsWith('video/');
+      if (esVid && file.size > MAX_VIDEO_BYTES) {
+        setErrores(p => ({ ...p, [tempId]: `El video pesa ${(file.size/1048576).toFixed(0)}MB y el máximo es ${MAX_VIDEO_MB}MB. Grabá uno más corto.` }));
+        continue;
+      }
+      if (esVid && actuales.filter(esVideoUrl).length >= MAX_VIDEOS) {
+        setErrores(p => ({ ...p, [tempId]: `Máximo ${MAX_VIDEOS} videos por propiedad.` }));
+        continue;
+      }
       setSubiendo(p => ({ ...p, [tempId]: 0 }));
       setErrores(p => { const n = {...p}; delete n[tempId]; return n; });
       try {
-        const blob = await comprimirImagen(file);
-        const storageRef = ref(storage, `properties/${userId}/${propId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g,'_')}`);
-        const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
+        let blob, contentType, nombre;
+        if (esVid) {
+          blob = file;
+          contentType = file.type || 'video/mp4';
+          const ext = (file.name.split('.').pop() || '').replace(/[^a-zA-Z0-9]/g,'') || 'mp4';
+          nombre = `video-${Date.now()}.${ext}`;
+        } else {
+          blob = await comprimirImagen(file);
+          contentType = 'image/jpeg';
+          nombre = `foto-${Date.now()}.jpg`;
+        }
+        const storageRef = ref(storage, `properties/${userId}/${propId}/${nombre}`);
+        const task = uploadBytesResumable(storageRef, blob, { contentType });
         await new Promise((resolve, reject) => {
           task.on('state_changed',
             snap => setSubiendo(p => ({ ...p, [tempId]: Math.round(snap.bytesTransferred / snap.totalBytes * 100) })),
             err => { setErrores(p => ({ ...p, [tempId]: 'Error al subir' })); reject(err); },
             async () => {
               const url = await getDownloadURL(task.snapshot.ref);
-              update('fotos', [...(prop.fotos || []), url]);
+              actuales = [...actuales, url];
+              update('fotos', actuales);
               setSubiendo(p => { const n = {...p}; delete n[tempId]; return n; });
               trackEvent(uid, 'fotosSubidas');
               resolve();
@@ -1766,7 +1819,18 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:8, marginBottom:12 }}>
           {fotos.map((url, i) => (
             <div key={url} onClick={()=>abrirLightbox(i)} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt, cursor:'pointer' }}>
-              <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+              {esVideoUrl(url) ? (
+                <>
+                  <video src={url} muted playsInline preload="metadata" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+                    <div style={{ width:38, height:38, borderRadius:'50%', background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <Play size={18} style={{ color:'white', marginLeft:2 }} fill="white" />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+              )}
               {isAdmin && (
                 <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
                   style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white', padding:0 }}>
@@ -1794,22 +1858,28 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
       ))}
       {isAdmin && (
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display:'none' }}
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display:'none' }}
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+            onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <input ref={camVideoRef} type="file" accept="video/*" capture="environment" style={{ display:'none' }}
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
           <button onClick={()=>camRef.current?.click()} disabled={!puedeSubir}
             style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.accent:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?'white':c.textMuted, fontWeight:600 }}>
             <Camera size={15} /> Tomar foto
           </button>
+          <button onClick={()=>camVideoRef.current?.click()} disabled={!puedeSubir}
+            style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.accent:c.textMuted, fontWeight:600 }}>
+            <Play size={14} fill={puedeSubir?c.accent:c.textMuted} /> Grabar video
+          </button>
           <button onClick={()=>fileRef.current?.click()} disabled={!puedeSubir}
             style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.surfaceAlt:'transparent', border:`1.5px dashed ${puedeSubir?c.border:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.text:c.textMuted, fontWeight:500 }}>
             <Plus size={15} />
-            {fotos.length === 0 ? 'Subir fotos' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS} fotos` : `Subir fotos (${fotos.length}/${MAX_FOTOS})`}
+            {fotos.length === 0 ? 'Subir archivo' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS}` : `Subir archivo (${fotos.length}/${MAX_FOTOS})`}
           </button>
         </div>
       )}
-      {isAdmin && fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Tocá una foto para ampliar · la ✕ para borrar</div>}
+      {isAdmin && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>{fotos.length > 0 ? 'Tocá para ampliar · la ✕ para borrar · ' : ''}Fotos o videos (hasta {MAX_VIDEO_MB}MB c/u)</div>}
       {lightboxIdx !== null && (
         <Lightbox fotos={fotos} index={lightboxIdx} onClose={cerrarLightbox} onPrev={prevFoto} onNext={nextFoto} />
       )}
