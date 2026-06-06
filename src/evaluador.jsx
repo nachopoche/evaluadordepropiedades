@@ -343,6 +343,20 @@ const LogoV = ({ size=32 }) => (
   </svg>
 );
 
+// Destello de Claude (la IA que potencia la carga). Naranja característico de Claude.
+const CLAUDE_ORANGE = '#D97757';
+const ClaudeMark = ({ size=16, color=CLAUDE_ORANGE }) => {
+  const rays = 12, cx = 12, cy = 12, r1 = 2.8, r2 = 10.2;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink:0 }}>
+      {Array.from({ length: rays }).map((_, i) => {
+        const a = (i / rays) * Math.PI * 2 - Math.PI / 2;
+        return <line key={i} x1={cx + Math.cos(a) * r1} y1={cy + Math.sin(a) * r1} x2={cx + Math.cos(a) * r2} y2={cy + Math.sin(a) * r2} stroke={color} strokeWidth="2.1" strokeLinecap="round" />;
+      })}
+    </svg>
+  );
+};
+
 // ============================================================
 // COMPONENTES UI
 // ============================================================
@@ -1577,6 +1591,29 @@ const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, chi
   );
 };
 
+// Barra de un criterio (usada en "el porqué del puntaje" de la pestaña Decisión)
+const BarraCriterio = ({ label, valor, color }) => (
+  <div style={{ marginBottom:10 }}>
+    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12.5, marginBottom:4 }}>
+      <span style={{ color:c.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginRight:8 }}>{label}</span>
+      <span style={{ color:c.textMuted, flexShrink:0 }}>{valor}/10</span>
+    </div>
+    <div style={{ height:6, borderRadius:3, background:c.surfaceAlt, overflow:'hidden' }}>
+      <div style={{ height:'100%', width:`${Math.max(0,Math.min(10,valor))*10}%`, background:color, borderRadius:3 }} />
+    </div>
+  </div>
+);
+
+// Dato de lectura compacto (mercado, datos clave) en la pestaña Decisión
+const ResumenDato = ({ label, valor, sub, subColor }) => (
+  <div>
+    <div style={{ fontSize:11, color:c.textMuted, marginBottom:3 }}>{label}</div>
+    <div style={{ fontSize:15, fontWeight:600, color:c.text }}>{valor}</div>
+    {sub && <div style={{ fontSize:11, color:subColor||c.textMuted, marginTop:2 }}>{sub}</div>}
+  </div>
+);
+
+
 
 // ============================================================
 // MINI LINE CHART (SVG puro, sin librerías)
@@ -2370,7 +2407,7 @@ const HistorialPrecio = ({ prop, update }) => {
 // DETALLE VIEW
 // ============================================================
 
-const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
+const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, propiedades, onBack, onDelete }) => {
   const DETALLE_TABS = [
     { id:'decision',   label:'Decisión',           icon:Navigation },
     { id:'inmueble',   label:'El inmueble',        icon:Ruler },
@@ -2466,6 +2503,60 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
     ? (analisis.estado==='rojo'?'#F7C1C1':analisis.estado==='amber'?'#FAC775':'#C0DD97')
     : semaforoBg(puntaje);
 
+  // --- Señal Excluyentes (incluye cochera) ---
+  const cocheraActivaCfg = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
+  const totalExcl = excluyentesActivos.length + (cocheraActivaCfg ? 1 : 0);
+  const cocheraCumple = cocheraActivaCfg ? prop.cochera === true : true;
+  const exCumpleCount = exCumple + (cocheraActivaCfg && cocheraCumple ? 1 : 0);
+  const exCumpleTotal = totalExcl > 0 && exCumpleCount === totalExcl;
+  const exFaltantes = [
+    ...excluyentesActivos.filter(e => !prop.excluyentes?.[e.id]).map(e => e.label),
+    ...(cocheraActivaCfg && !cocheraCumple ? ['Cochera'] : []),
+  ];
+
+  // --- Estado vacío del header (propiedad nueva sin datos cargados) ---
+  const propVacia = !prop.precioPedido && !prop.m2Cubiertos && !prop.direccion;
+
+  // --- Comparativo: posición entre activas que cumplen excluyentes ---
+  const rankingActivas = (propiedades || [])
+    .filter(p => p.estado !== 'Descartada' && cumpleExcluyentes(p, config?.excluyentesActivos, config?.ambientesMinimos))
+    .map(p => ({ id: p.id, sc: calcularPuntaje(p.puntajes, criterios) }))
+    .sort((a, b) => b.sc - a.sc);
+  const rankPos = rankingActivas.findIndex(r => r.id === prop.id);
+
+  // --- El porqué del score ---
+  const criteriosPuntuados = criterios
+    .map(cr => { const p = prop.puntajes?.[cr.id]; return { ...cr, p, suma: (p ?? 0) * cr.peso, perdida: cr.peso * (10 - (p ?? 0)) }; })
+    .filter(x => x.p != null);
+  const loQueSuma = [...criteriosPuntuados].filter(x => x.p >= 6).sort((a, b) => b.suma - a.suma).slice(0, 3);
+  const loQueBaja = [...criteriosPuntuados].filter(x => x.p <= 5 && x.perdida > 0).sort((a, b) => b.perdida - a.perdida).slice(0, 3);
+
+  // --- Mercado (misma fórmula que SemaforoDemanda) ---
+  const diasMercado = prop.fechaPublicacion ? Math.max(1, Math.floor((new Date() - new Date(prop.fechaPublicacion)) / 86400000)) : null;
+  const histViews = prop.aviso?.historialViews || [];
+  const viewsUlt = histViews.length ? histViews[histViews.length - 1].views : (parseInt(prop.views) || null);
+  const viewsDia = (viewsUlt != null && diasMercado) ? viewsUlt / diasMercado : null;
+  const viewsSemaforo = viewsDia == null ? null : viewsDia < 10 ? { color:c.red, label:'Poco interés' } : viewsDia <= 30 ? { color:c.amber, label:'Interés normal' } : { color:c.green, label:'Muy buscado' };
+  const promBarrio = PRECIOS_BARRIO_USADO[prop.zona] || (prop.promedioBarrio ? Number(prop.promedioBarrio) : null);
+  const m2DiffPct = (usdM2 && promBarrio) ? ((usdM2 - promBarrio) / promBarrio) * 100 : null;
+
+  // --- Distancias (calculadas en Mapa, sin recalcular) ---
+  const distList = Object.entries(prop.distancias || {})
+    .map(([nombre, d]) => ({ nombre, texto: d?.distanciaTexto || (d?.distanciaKm ? `${d.distanciaKm} km` : null) }))
+    .filter(x => x.texto);
+
+  // --- Datos clave para la ficha de lectura ---
+  const datosClave = [
+    m2pond > 0 && { l:'Superficie', v:`${fmtNum(m2pond,0)} m²` },
+    prop.ambientes && { l:'Ambientes', v:prop.ambientes },
+    prop.dormitorios && { l:'Dormitorios', v:prop.dormitorios },
+    prop.banos && { l:'Baños', v:prop.banos },
+    prop.expensas && { l:'Expensas', v:`$${fmtNum(prop.expensas,0)}` },
+    prop.antiguedad != null && prop.antiguedad !== '' && { l:'Antigüedad', v:`${prop.antiguedad} años` },
+    prop.piso != null && prop.piso !== '' && { l:'Piso', v:prop.piso },
+    prop.orientacion && { l:'Orientación', v:prop.orientacion },
+  ].filter(Boolean);
+
 
   return (
     <div style={{ maxWidth:880, margin:'0 auto', padding:isMobile?'16px 14px 88px':'24px 24px 64px' }}>
@@ -2486,49 +2577,92 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </div>
 
-      <Card style={{ marginBottom:14, padding:22 }}>
-        <div style={{ display:'flex', gap:18, alignItems:'flex-start' }}>
-          <PortadaThumb prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} size={96} radius={14} puntaje={puntaje} />
-          <div style={{ flex:1, minWidth:0 }}>
-            <TextInput defaultValue={prop.nombre} onCommit={v=>update('nombre',v)} placeholder="Nombre de la propiedad"
-              style={{ fontSize:22, fontWeight:700, border:'none', padding:'0 0 5px', letterSpacing:'-0.01em' }} />
-            <div style={{ fontSize:13, color:c.textMuted, marginBottom:10 }}>
-              {prop.zona||'Sin zona'} · {prop.tipo||'Sin tipo'}{prop.ambientes?` · ${prop.ambientes} amb`:''}{m2pond>0?` · ${fmtNum(m2pond,0)}m²`:''}
-            </div>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.estado||'Para visitar'}</Badge>
-              {prop.inmobiliaria && <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.inmobiliaria}</Badge>}
-            </div>
+      {/* HEADER DE DOS ESTADOS */}
+      {propVacia ? (
+        /* --- VACÍO: el cargador con Claude es protagonista --- */
+        <Card style={{ marginBottom:14, padding:isMobile?22:32, textAlign:'center', border:`1.5px solid ${CLAUDE_ORANGE}40`, background:`linear-gradient(180deg, ${CLAUDE_ORANGE}0D, ${c.surface} 70%)` }}>
+          <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:56, height:56, borderRadius:16, background:`${CLAUDE_ORANGE}1A`, marginBottom:14 }}>
+            <ClaudeMark size={30} />
           </div>
-          <div style={{ textAlign:'center', flexShrink:0 }}>
-            <div style={{ fontSize:38, fontWeight:700, color:colorPuntaje(puntaje), lineHeight:1, letterSpacing:'-0.02em' }}>{puntaje}</div>
-            <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>de 100</div>
+          <div style={{ fontSize:20, fontWeight:700, marginBottom:6, letterSpacing:'-0.01em' }}>Cargá esta propiedad en segundos</div>
+          <div style={{ fontSize:13.5, color:c.textMuted, lineHeight:1.6, maxWidth:440, margin:'0 auto 18px' }}>
+            Pegá el texto del aviso de Zonaprop, Argenprop o MercadoLibre y <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> completa todos los campos por vos.
           </div>
-        </div>
-      </Card>
-
-      <div style={{ display:'grid', gridTemplateColumns:isAdmin?'1fr 1fr':'1fr', gap:10, marginBottom:14 }}>
-        <Card style={{ padding:16 }}>
-          <div style={{ fontSize:11, color:c.textMuted, marginBottom:6 }}>Precio pedido</div>
-          <div style={{ fontSize:22, fontWeight:700 }}>{fmtUSD(prop.precioPedido)}</div>
-          {usdM2 && <div style={{ fontSize:12, color:c.textMuted, marginTop:5 }}>{fmtUSD(usdM2)}/m² ponderado</div>}
+          <textarea
+            value={textoAviso}
+            onChange={e=>setTextoAviso(e.target.value)}
+            placeholder="Pegá acá todo el texto del aviso…"
+            style={{ width:'100%', height:120, padding:13, borderRadius:12, border:`1px solid ${c.border}`, fontFamily:FONT, fontSize:13, resize:'vertical', background:c.surface, color:c.text, outline:'none', boxSizing:'border-box', lineHeight:1.6, marginBottom:12 }}
+          />
+          {errorIA && <div style={{ color:c.red, fontSize:12, marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
+          <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
+            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'12px 26px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:11, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:14, fontWeight:600, fontFamily:FONT }}>
+            {cargandoIA ? '⏳ Analizando…' : <><ClaudeMark size={16} color="white" /> Completar con Claude</>}
+          </button>
+          <div style={{ marginTop:16 }}>
+            <button onClick={()=>setSecActiva('inmueble')} style={{ background:'transparent', border:'none', color:c.textMuted, fontSize:12.5, cursor:'pointer', fontFamily:FONT, textDecoration:'underline', textUnderlineOffset:3 }}>
+              o cargá los datos a mano
+            </button>
+          </div>
         </Card>
-        {isAdmin && (
-          <Card style={{ padding:16, background:colAna.bg, border:`1px solid ${colAna.fg}30` }}>
-            <div style={{ fontSize:11, color:colAna.fg, marginBottom:6, display:'flex', alignItems:'center', gap:4 }}>
-              <Lock size={10} /> Análisis de compra
+      ) : (
+        /* --- CARGADO: portada + nombre + 3 señales --- */
+        <>
+          <Card style={{ marginBottom:12, padding:22 }}>
+            <div style={{ display:'flex', gap:18, alignItems:'flex-start' }}>
+              <PortadaThumb prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} size={96} radius={14} puntaje={puntaje} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <TextInput defaultValue={prop.nombre} onCommit={v=>update('nombre',v)} placeholder="Nombre de la propiedad"
+                  style={{ fontSize:22, fontWeight:700, border:'none', padding:'0 0 5px', letterSpacing:'-0.01em' }} />
+                <div style={{ fontSize:13, color:c.textMuted, marginBottom:10 }}>
+                  {prop.zona||'Sin zona'} · {prop.tipo||'Sin tipo'}{prop.ambientes?` · ${prop.ambientes} amb`:''}{m2pond>0?` · ${fmtNum(m2pond,0)}m²`:''}
+                </div>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                  <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.estado||'Para visitar'}</Badge>
+                  {prop.inmobiliaria && <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.inmobiliaria}</Badge>}
+                  <button onClick={()=>setShowCargaRapida(true)} title="Pegar un aviso y completar con Claude"
+                    style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:`${CLAUDE_ORANGE}14`, border:`1px solid ${CLAUDE_ORANGE}40`, borderRadius:20, color:CLAUDE_ORANGE, fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:FONT }}>
+                    <ClaudeMark size={13} /> pegar aviso
+                  </button>
+                </div>
+              </div>
             </div>
-            {analisis.estado === 'sin-datos' ? (
-              <div style={{ fontSize:14, color:colAna.fg }}>Cargá el precio pedido</div>
-            ) : (
-              <>
-                <div style={{ fontSize:22, fontWeight:700, color:colAna.fg }}>{analisis.resultado>=0?'+':'−'} {fmtUSDk(Math.abs(analisis.resultado))}</div>
-                <div style={{ fontSize:12, color:colAna.fg, marginTop:5, opacity:0.85 }}>{colAna.label} · Costo {fmtUSD(analisis.costoTotal)}</div>
-              </>
-            )}
           </Card>
-        )}
-      </div>
+
+          {/* LAS 3 SEÑALES */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10, marginBottom:14 }}>
+            <Card style={{ padding:'14px 16px' }}>
+              <div style={{ fontSize:11, color:c.textMuted, marginBottom:6 }}>Puntaje</div>
+              <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
+                <span style={{ fontSize:28, fontWeight:700, color:colorPuntaje(puntaje), lineHeight:1 }}>{puntaje}</span>
+                <span style={{ fontSize:12, color:c.textSubtle }}>/100</span>
+              </div>
+            </Card>
+            <Card style={{ padding:'14px 16px', background:analisis.estado==='sin-datos'?c.surface:colAna.bg, border:analisis.estado==='sin-datos'?`1px solid ${c.border}`:`1px solid ${colAna.fg}30` }}>
+              <div style={{ fontSize:11, color:analisis.estado==='sin-datos'?c.textMuted:colAna.fg, marginBottom:6 }}>Presupuesto</div>
+              {analisis.estado==='sin-datos' ? (
+                <div style={{ fontSize:13, color:c.textMuted }}>Cargá el precio</div>
+              ) : (
+                <>
+                  <div style={{ fontSize:15, fontWeight:700, color:colAna.fg, lineHeight:1.2 }}>{analisis.resultado>=0?'Te alcanza':'No te alcanza'}</div>
+                  <div style={{ fontSize:11.5, color:c.textMuted, marginTop:4 }}>{fmtUSD(prop.precioPedido)}</div>
+                </>
+              )}
+            </Card>
+            <Card style={{ padding:'14px 16px' }}>
+              <div style={{ fontSize:11, color:c.textMuted, marginBottom:6 }}>Excluyentes</div>
+              {totalExcl===0 ? (
+                <div style={{ fontSize:13, color:c.textMuted }}>Sin definir</div>
+              ) : (
+                <>
+                  <div style={{ fontSize:15, fontWeight:700, color:exCumpleTotal?c.green:c.amber, lineHeight:1.2 }}>Cumple {exCumpleCount}/{totalExcl}</div>
+                  {exFaltantes.length>0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>Falta: {exFaltantes.join(', ')}</div>}
+                </>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
 
       {/* TABS DE NAVEGACIÓN */}
       <div style={{ display:'flex', gap:4, overflowX:'auto', marginBottom:12, scrollbarWidth:'none', WebkitOverflowScrolling:'touch', padding:'2px 0' }}>
@@ -2548,15 +2682,98 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         })}
       </div>
 
-      {/* DECISIÓN (resumen de solo lectura — contenido en Tanda C) */}
+      {/* DECISIÓN (resumen de solo lectura) */}
       <Section icon={Navigation} title="Decisión" open={sec.decision} >
-        <div style={{ padding:'24px 4px', textAlign:'center', color:c.textMuted }}>
-          <Navigation size={26} style={{ color:c.textSubtle, marginBottom:10 }} />
-          <div style={{ fontSize:14, fontWeight:600, color:c.text, marginBottom:6 }}>El resumen de tu decisión vivirá acá</div>
-          <div style={{ fontSize:13, lineHeight:1.6, maxWidth:420, margin:'0 auto' }}>
-            El porqué del score, la lectura de mercado, los datos clave y la comparación con el resto de tu lista — todo junto, de un vistazo.
+        {propVacia ? (
+          <div style={{ padding:'20px 4px', textAlign:'center', color:c.textMuted }}>
+            <div style={{ fontSize:14, fontWeight:600, color:c.text, marginBottom:6 }}>Todavía no hay nada que analizar</div>
+            <div style={{ fontSize:13, lineHeight:1.6, maxWidth:420, margin:'0 auto' }}>Cargá la propiedad con el aviso de arriba y acá vas a ver el resumen de tu decisión.</div>
           </div>
-        </div>
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:22 }}>
+
+            {/* El porqué del puntaje */}
+            <div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:10 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>El porqué del puntaje</div>
+                <button onClick={()=>setSecActiva('evaluacion')} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 11px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:8, color:c.text, fontSize:12, cursor:'pointer', fontFamily:FONT, flexShrink:0 }}><SlidersHorizontal size={12}/> Ajustar puntajes</button>
+              </div>
+              {criteriosPuntuados.length===0 ? (
+                <div style={{ fontSize:13, color:c.textMuted }}>Todavía no puntuaste ningún criterio. Andá a <strong>Valoración</strong> para empezar.</div>
+              ) : (
+                <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr', gap:18 }}>
+                  <div>
+                    <div style={{ fontSize:11.5, fontWeight:600, color:c.green, marginBottom:8 }}>Lo que más suma</div>
+                    {loQueSuma.length ? loQueSuma.map(cr => <BarraCriterio key={cr.id} label={cr.label} valor={cr.p} color={c.green} />) : <div style={{ fontSize:12, color:c.textMuted }}>—</div>}
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11.5, fontWeight:600, color:c.red, marginBottom:8 }}>Lo que más le baja</div>
+                    {loQueBaja.length ? loQueBaja.map(cr => <BarraCriterio key={cr.id} label={cr.label} valor={cr.p} color={c.red} />) : <div style={{ fontSize:12, color:c.textMuted }}>Nada relevante</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* En el mercado */}
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>En el mercado</div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:12 }}>
+                <ResumenDato label="Precio / m²" valor={usdM2?fmtUSD(usdM2):'—'} sub={m2DiffPct!=null?`${m2DiffPct>0?'+':''}${m2DiffPct.toFixed(0)}% vs barrio`:(promBarrio?`barrio ${fmtUSD(promBarrio)}/m²`:null)} subColor={m2DiffPct!=null?(m2DiffPct>0?c.red:c.green):c.textMuted} />
+                <ResumenDato label="Publicado" valor={diasMercado!=null?`hace ${diasMercado} días`:'—'} />
+                <ResumenDato label="Demanda" valor={viewsDia!=null?`${viewsDia.toFixed(1)} views/día`:'—'} sub={viewsSemaforo?viewsSemaforo.label:null} subColor={viewsSemaforo?viewsSemaforo.color:c.textMuted} />
+              </div>
+            </div>
+
+            {/* Datos clave */}
+            {datosClave.length>0 && (
+              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+                <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Datos clave</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(110px, 1fr))', gap:12 }}>
+                  {datosClave.map(d => <ResumenDato key={d.l} label={d.l} valor={d.v} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Cerca de */}
+            {distList.length>0 && (
+              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+                <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Cerca de</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {distList.map(d => (
+                    <div key={d.nombre} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:13 }}>
+                      <span style={{ color:c.textMuted, display:'inline-flex', alignItems:'center', gap:7 }}><Navigation size={13} style={{ color:c.textSubtle }}/>{d.nombre}</span>
+                      <span style={{ fontWeight:600 }}>{d.texto}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Estado */}
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Estado</div>
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.estado||'Para visitar'}</Badge>
+                {prop.proximaAccion ? <span style={{ fontSize:13, color:c.textMuted }}>Próxima acción: <strong style={{ color:c.text }}>{prop.proximaAccion}</strong></span> : <span style={{ fontSize:13, color:c.textSubtle }}>Sin próxima acción definida</span>}
+              </div>
+            </div>
+
+            {/* Comparativo */}
+            {rankingActivas.length>1 && (
+              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+                <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Comparativo</div>
+                {rankPos>=0 ? (
+                  <div style={{ fontSize:14, color:c.text }}>
+                    Ranquea <strong style={{ color:c.accent }}>{rankPos+1}º de {rankingActivas.length}</strong> entre las propiedades de tu lista que cumplen los excluyentes.
+                  </div>
+                ) : (
+                  <div style={{ fontSize:13, color:c.amber, display:'flex', alignItems:'center', gap:6 }}><AlertCircle size={14}/> No entra en el ranking porque no cumple todos los excluyentes.</div>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
       </Section>
 
       {/* EL INMUEBLE (con Identificación adentro) */}
@@ -2605,12 +2822,12 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         {isAdmin && (
           <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${c.border}`, display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
             <button onClick={()=>setShowCargaRapida(true)}
-              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:'0 2px 8px rgba(232,69,74,0.3)' }}>
-              ✨ Carga Rápida con IA
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:`0 2px 8px ${CLAUDE_ORANGE}4D` }}>
+              <ClaudeMark size={15} color="white" /> Cargar con Claude
             </button>
             <div style={{ fontSize:11, color:c.textMuted, lineHeight:1.5 }}>
-              Pegá el texto del aviso y Valora completa los campos automáticamente.<br />
-              <span style={{ color:c.textSubtle }}>Powered by Claude AI</span>
+              Pegá el texto del aviso y <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> completa los campos automáticamente.<br />
+              <span style={{ color:c.textSubtle }}>IA de Anthropic</span>
             </div>
           </div>
         )}
@@ -2848,10 +3065,10 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', background:c.surface, borderRadius:16, padding:24, zIndex:101, width:'min(560px, 92vw)', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>✨ Carga Rápida con IA</div>
+                <div style={{ fontSize:16, fontWeight:700, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}><ClaudeMark size={19} /> Cargar con Claude</div>
                 <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>
                   Copiá todo el texto del aviso de Zonaprop, Argenprop o MercadoLibre y pegalo acá.<br />
-                  <span style={{ color:c.textSubtle }}>Powered by Claude AI (Haiku 4.5)</span>
+                  <span style={{ color:c.textSubtle }}>Lo procesa <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> (Haiku 4.5), de Anthropic</span>
                 </div>
               </div>
               <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, padding:4, display:'flex', flexShrink:0 }}><X size={18} /></button>
@@ -2866,8 +3083,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             <div style={{ display:'flex', gap:10, marginTop:14, justifyContent:'flex-end', alignItems:'center' }}>
               <Button variant="secondary" onClick={()=>setShowCargaRapida(false)}>Cancelar</Button>
               <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
-                {cargandoIA ? '⏳ Analizando...' : '✨ Completar campos'}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
+                {cargandoIA ? '⏳ Analizando...' : <><ClaudeMark size={15} color="white" /> Completar con Claude</>}
               </button>
             </div>
           </div>
@@ -4046,6 +4263,7 @@ export default function App() {
           config={config}
           isAdmin={isAdmin}
           userId={firebaseUser?.uid}
+          propiedades={propiedades}
           onBack={() => setSelectedId(null)}
           onDelete={onDelete}
         />
