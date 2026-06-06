@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop, Play } from 'lucide-react';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop, Play, Clipboard } from 'lucide-react';
 import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
@@ -1422,16 +1422,18 @@ const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
 
 const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=14, puntaje }) => {
   const { uid } = useUser();
+  const isMobile = useIsMobile();
   const fileRef = React.useRef(null);
   const [editSrc, setEditSrc] = useState(null);
   const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuMsg, setMenuMsg] = useState(null);
   const url = prop.portada;
 
+  // Ctrl+V solo escucha cuando el cartelito está abierto (no global)
   React.useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !menuOpen) return;
     const onPaste = (e) => {
-      const ae = document.activeElement;
-      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       for (const it of items) {
@@ -1440,7 +1442,7 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
           if (file) {
             e.preventDefault();
             const reader = new FileReader();
-            reader.onload = () => setEditSrc(reader.result);
+            reader.onload = () => { setEditSrc(reader.result); setMenuOpen(false); };
             reader.readAsDataURL(file);
           }
           break;
@@ -1449,7 +1451,7 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [isAdmin]);
+  }, [isAdmin, menuOpen]);
 
   const elegir = (e) => {
     const file = e.target.files?.[0];
@@ -1460,6 +1462,30 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
     reader.readAsDataURL(file);
   };
 
+  const onSlotClick = () => {
+    if (isMobile) { fileRef.current?.click(); }
+    else { setMenuMsg(null); setMenuOpen(o => !o); }
+  };
+
+  const pegarDesdePortapapeles = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const tipo = item.types.find(t => t.startsWith('image/'));
+        if (tipo) {
+          const blob = await item.getType(tipo);
+          const reader = new FileReader();
+          reader.onload = () => { setEditSrc(reader.result); setMenuOpen(false); };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+      setMenuMsg('No hay ninguna imagen copiada. Hacé una captura y reintentá.');
+    } catch {
+      setMenuMsg('No pude leer el portapapeles. Probá con Ctrl+V o "Elegir archivo".');
+    }
+  };
+
   const guardar = async (blob) => {
     const nuevaUrl = await subirBlobPortada(blob, userId, propId);
     if (url) { try { await deleteObject(ref(storage, url)); } catch { /* ignore */ } }
@@ -1467,6 +1493,8 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
     trackEvent(uid, 'fotosSubidas');
     setEditSrc(null);
   };
+
+  const menuBtn = { display:'flex', alignItems:'center', gap:8, width:'100%', padding:'9px 11px', border:'none', background:'transparent', borderRadius:8, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' };
 
   return (
     <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}
@@ -1482,16 +1510,34 @@ const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=1
       )}
       {isAdmin && (
         <>
-          <button onClick={()=>fileRef.current?.click()} title={url?'Cambiar portada':'Agregar portada'}
+          <button onClick={onSlotClick} title={url?'Cambiar portada':'Agregar portada'}
             style={{ position:'absolute', inset:0, borderRadius:radius, border:'none', cursor:'pointer',
-              background: url ? (hover?'rgba(0,0,0,0.45)':'transparent') : 'transparent',
+              background: url ? (hover||menuOpen?'rgba(0,0,0,0.45)':'transparent') : 'transparent',
               display:'flex', alignItems: url?'flex-end':'center', justifyContent:'center', padding:6,
-              opacity: url ? (hover?1:0) : 1, transition:'all 150ms' }}>
+              opacity: url ? (hover||menuOpen?1:0) : 1, transition:'all 150ms' }}>
             {!url
               ? <span style={{ fontSize:10, fontWeight:600, color:colorPuntaje(puntaje||0) }}>+ portada</span>
               : <span style={{ fontSize:10, fontWeight:600, color:'white', background:'rgba(0,0,0,0.55)', padding:'3px 7px', borderRadius:6, display:'flex', alignItems:'center', gap:4 }}><Crop size={11} /> Cambiar</span>}
           </button>
           <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={elegir} />
+          {menuOpen && !isMobile && (
+            <>
+              <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+              <div style={{ position:'absolute', top:size+8, left:0, zIndex:41, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 8px 24px rgba(30,45,74,0.16)', padding:6, minWidth:210 }}>
+                <button onClick={pegarDesdePortapapeles} style={menuBtn}
+                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Clipboard size={15} style={{ color:c.accent }} />
+                  <span>Pegar captura <span style={{ color:c.textMuted, fontWeight:400 }}>(o Ctrl+V)</span></span>
+                </button>
+                <button onClick={()=>{ setMenuOpen(false); fileRef.current?.click(); }} style={menuBtn}
+                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <ImageIcon size={15} style={{ color:c.textMuted }} />
+                  <span>Elegir archivo</span>
+                </button>
+                {menuMsg && <div style={{ fontSize:11, color:c.red, padding:'6px 11px 4px' }}>{menuMsg}</div>}
+              </div>
+            </>
+          )}
         </>
       )}
       {editSrc && <RecortadorPortada src={editSrc} onCancel={()=>setEditSrc(null)} onConfirm={guardar} />}
@@ -1675,10 +1721,11 @@ const SemaforoDemanda = ({ prop, update }) => {
 // FOTOS — upload, galería y lightbox
 // ============================================================
 
-const MAX_FOTOS = 10;
+const MAX_FOTOS = 20;
 const MAX_W = 1600;
 const QUALITY = 0.85;
 const MAX_VIDEOS = 3;
+const MAX_IMAGENES = 17;
 const MAX_VIDEO_MB = 50;
 const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
 const esVideoUrl = (url) => /\.(mp4|mov|webm|m4v|3gp|quicktime)(\?|$)/i.test(url || '');
@@ -1737,6 +1784,7 @@ const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
 
 const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
   const { uid } = useUser();
+  const isMobile = useIsMobile();
   const fotos = prop.fotos || [];
   const [subiendo, setSubiendo] = useState({});
   const [errores, setErrores] = useState({});
@@ -1764,6 +1812,10 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
       }
       if (esVid && actuales.filter(esVideoUrl).length >= MAX_VIDEOS) {
         setErrores(p => ({ ...p, [tempId]: `Máximo ${MAX_VIDEOS} videos por propiedad.` }));
+        continue;
+      }
+      if (!esVid && actuales.filter(u => !esVideoUrl(u)).length >= MAX_IMAGENES) {
+        setErrores(p => ({ ...p, [tempId]: `Máximo ${MAX_IMAGENES} fotos por propiedad.` }));
         continue;
       }
       setSubiendo(p => ({ ...p, [tempId]: 0 }));
@@ -1864,14 +1916,18 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
           <input ref={camVideoRef} type="file" accept="video/*" capture="environment" style={{ display:'none' }}
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
-          <button onClick={()=>camRef.current?.click()} disabled={!puedeSubir}
-            style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.accent:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?'white':c.textMuted, fontWeight:600 }}>
-            <Camera size={15} /> Tomar foto
-          </button>
-          <button onClick={()=>camVideoRef.current?.click()} disabled={!puedeSubir}
-            style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.accent:c.textMuted, fontWeight:600 }}>
-            <Play size={14} fill={puedeSubir?c.accent:c.textMuted} /> Grabar video
-          </button>
+          {isMobile && (
+            <button onClick={()=>camRef.current?.click()} disabled={!puedeSubir}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.accent:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?'white':c.textMuted, fontWeight:600 }}>
+              <Camera size={15} /> Tomar foto
+            </button>
+          )}
+          {isMobile && (
+            <button onClick={()=>camVideoRef.current?.click()} disabled={!puedeSubir}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.accent:c.textMuted, fontWeight:600 }}>
+              <Play size={14} fill={puedeSubir?c.accent:c.textMuted} /> Grabar video
+            </button>
+          )}
           <button onClick={()=>fileRef.current?.click()} disabled={!puedeSubir}
             style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.surfaceAlt:'transparent', border:`1.5px dashed ${puedeSubir?c.border:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.text:c.textMuted, fontWeight:500 }}>
             <Plus size={15} />
