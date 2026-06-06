@@ -2541,9 +2541,13 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const m2DiffPct = (usdM2 && promBarrio) ? ((usdM2 - promBarrio) / promBarrio) * 100 : null;
 
   // --- Distancias (calculadas en Mapa, sin recalcular) ---
-  const distList = Object.entries(prop.distancias || {})
-    .map(([nombre, d]) => ({ nombre, texto: d?.distanciaTexto || (d?.distanciaKm ? `${d.distanciaKm} km` : null) }))
-    .filter(x => x.texto);
+  const distList = Object.values(prop.distancias || {})
+    .map(d => ({
+      nombre: (d?.nombre || '').split('|')[0].trim(),
+      texto: d?.distanciaTexto || (d?.distanciaKm ? `${d.distanciaKm} km` : null),
+      tiempo: d?.tiempoTexto || null,
+    }))
+    .filter(x => x.nombre && x.texto);
 
   // --- Datos clave para la ficha de lectura ---
   const datosClave = [
@@ -2579,14 +2583,14 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
       {/* HEADER DE DOS ESTADOS */}
       {propVacia ? (
-        /* --- VACÍO: el cargador con Claude es protagonista --- */
-        <Card style={{ marginBottom:14, padding:isMobile?22:32, textAlign:'center', border:`1.5px solid ${CLAUDE_ORANGE}40`, background:`linear-gradient(180deg, ${CLAUDE_ORANGE}0D, ${c.surface} 70%)` }}>
-          <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:56, height:56, borderRadius:16, background:`${CLAUDE_ORANGE}1A`, marginBottom:14 }}>
-            <ClaudeMark size={30} />
+        /* --- VACÍO: el cargador es protagonista (marca Valora) --- */
+        <Card style={{ marginBottom:14, padding:isMobile?22:32, textAlign:'center', border:`1.5px solid ${c.accent}33`, background:`linear-gradient(180deg, ${c.accentSoft}, ${c.surface} 70%)` }}>
+          <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+            <LogoV size={48} />
           </div>
           <div style={{ fontSize:20, fontWeight:700, marginBottom:6, letterSpacing:'-0.01em' }}>Cargá esta propiedad en segundos</div>
           <div style={{ fontSize:13.5, color:c.textMuted, lineHeight:1.6, maxWidth:440, margin:'0 auto 18px' }}>
-            Pegá el texto del aviso de Zonaprop, Argenprop o MercadoLibre y <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> completa todos los campos por vos.
+            Pegá el texto del aviso de Zonaprop, Argenprop o MercadoLibre y se completan todos los campos automáticamente.
           </div>
           <textarea
             value={textoAviso}
@@ -2596,8 +2600,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           />
           {errorIA && <div style={{ color:c.red, fontSize:12, marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
           <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
-            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'12px 26px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:11, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:14, fontWeight:600, fontFamily:FONT }}>
-            {cargandoIA ? '⏳ Analizando…' : <><ClaudeMark size={16} color="white" /> Completar con Claude</>}
+            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'12px 26px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:c.accent, color:'white', border:'none', borderRadius:11, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:14, fontWeight:600, fontFamily:FONT }}>
+            {cargandoIA ? 'Analizando…' : <><ClaudeMark size={16} color="white" /> Completar con Claude</>}
           </button>
           <div style={{ marginTop:16 }}>
             <button onClick={()=>setSecActiva('inmueble')} style={{ background:'transparent', border:'none', color:c.textMuted, fontSize:12.5, cursor:'pointer', fontFamily:FONT, textDecoration:'underline', textUnderlineOffset:3 }}>
@@ -2621,8 +2625,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
                   <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.estado||'Para visitar'}</Badge>
                   {prop.inmobiliaria && <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.inmobiliaria}</Badge>}
                   <button onClick={()=>setShowCargaRapida(true)} title="Pegar un aviso y completar con Claude"
-                    style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:`${CLAUDE_ORANGE}14`, border:`1px solid ${CLAUDE_ORANGE}40`, borderRadius:20, color:CLAUDE_ORANGE, fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:FONT }}>
-                    <ClaudeMark size={13} /> pegar aviso
+                    style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:c.accentSoft, border:`1px solid ${c.accent}33`, borderRadius:20, color:c.accent, fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:FONT }}>
+                    <ClaudeMark size={13} color={c.accent} /> pegar aviso
                   </button>
                 </div>
               </div>
@@ -2690,24 +2694,24 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             <div style={{ fontSize:13, lineHeight:1.6, maxWidth:420, margin:'0 auto' }}>Cargá la propiedad con el aviso de arriba y acá vas a ver el resumen de tu decisión.</div>
           </div>
         ) : (
-          <div style={{ display:'flex', flexDirection:'column', gap:22 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
 
             {/* El porqué del puntaje */}
-            <div>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, gap:10 }}>
+            <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, gap:10 }}>
                 <div style={{ fontSize:13, fontWeight:700 }}>El porqué del puntaje</div>
-                <button onClick={()=>setSecActiva('evaluacion')} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 11px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:8, color:c.text, fontSize:12, cursor:'pointer', fontFamily:FONT, flexShrink:0 }}><SlidersHorizontal size={12}/> Ajustar puntajes</button>
+                <button onClick={()=>setSecActiva('evaluacion')} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 11px', background:c.surface, border:`1px solid ${c.border}`, borderRadius:8, color:c.text, fontSize:12, cursor:'pointer', fontFamily:FONT, flexShrink:0 }}><SlidersHorizontal size={12}/> Ajustar puntajes</button>
               </div>
               {criteriosPuntuados.length===0 ? (
                 <div style={{ fontSize:13, color:c.textMuted }}>Todavía no puntuaste ningún criterio. Andá a <strong>Valoración</strong> para empezar.</div>
               ) : (
-                <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr', gap:18 }}>
-                  <div>
-                    <div style={{ fontSize:11.5, fontWeight:600, color:c.green, marginBottom:8 }}>Lo que más suma</div>
+                <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'1fr 1fr', gap:10 }}>
+                  <div style={{ background:c.greenSoft, borderRadius:10, padding:'12px 14px' }}>
+                    <div style={{ fontSize:10.5, fontWeight:700, color:c.green, marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Lo que más suma</div>
                     {loQueSuma.length ? loQueSuma.map(cr => <BarraCriterio key={cr.id} label={cr.label} valor={cr.p} color={c.green} />) : <div style={{ fontSize:12, color:c.textMuted }}>—</div>}
                   </div>
-                  <div>
-                    <div style={{ fontSize:11.5, fontWeight:600, color:c.red, marginBottom:8 }}>Lo que más le baja</div>
+                  <div style={{ background:c.redSoft, borderRadius:10, padding:'12px 14px' }}>
+                    <div style={{ fontSize:10.5, fontWeight:700, color:c.red, marginBottom:12, textTransform:'uppercase', letterSpacing:0.5 }}>Lo que más le baja</div>
                     {loQueBaja.length ? loQueBaja.map(cr => <BarraCriterio key={cr.id} label={cr.label} valor={cr.p} color={c.red} />) : <div style={{ fontSize:12, color:c.textMuted }}>Nada relevante</div>}
                   </div>
                 </div>
@@ -2715,34 +2719,52 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             </div>
 
             {/* En el mercado */}
-            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+            <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
               <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>En el mercado</div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:12 }}>
-                <ResumenDato label="Precio / m²" valor={usdM2?fmtUSD(usdM2):'—'} sub={m2DiffPct!=null?`${m2DiffPct>0?'+':''}${m2DiffPct.toFixed(0)}% vs barrio`:(promBarrio?`barrio ${fmtUSD(promBarrio)}/m²`:null)} subColor={m2DiffPct!=null?(m2DiffPct>0?c.red:c.green):c.textMuted} />
-                <ResumenDato label="Publicado" valor={diasMercado!=null?`hace ${diasMercado} días`:'—'} />
-                <ResumenDato label="Demanda" valor={viewsDia!=null?`${viewsDia.toFixed(1)} views/día`:'—'} sub={viewsSemaforo?viewsSemaforo.label:null} subColor={viewsSemaforo?viewsSemaforo.color:c.textMuted} />
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
+                <div style={{ background:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${c.border}` }}>
+                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Precio / m²</div>
+                  <div style={{ fontSize:16, fontWeight:700 }}>{usdM2?fmtUSD(usdM2):'—'}</div>
+                  {m2DiffPct!=null && <div style={{ fontSize:11, marginTop:4, color:m2DiffPct>0?c.red:c.green, fontWeight:600 }}>{m2DiffPct>0?'+':''}{m2DiffPct.toFixed(0)}% vs barrio</div>}
+                  {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSD(promBarrio)}/m²</div>}
+                </div>
+                <div style={{ background:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${c.border}` }}>
+                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Publicado</div>
+                  <div style={{ fontSize:16, fontWeight:700 }}>{diasMercado!=null?`${diasMercado}d`:'—'}</div>
+                  {diasMercado!=null && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>en el mercado</div>}
+                </div>
+                <div style={{ background:viewsSemaforo?`${viewsSemaforo.color}14`:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${viewsSemaforo?`${viewsSemaforo.color}33`:c.border}` }}>
+                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Demanda</div>
+                  <div style={{ fontSize:16, fontWeight:700 }}>{viewsDia!=null?`${viewsDia.toFixed(1)}/día`:'—'}</div>
+                  {viewsSemaforo && <div style={{ fontSize:11, color:viewsSemaforo.color, marginTop:4, fontWeight:600 }}>{viewsSemaforo.label}</div>}
+                </div>
               </div>
             </div>
 
             {/* Datos clave */}
             {datosClave.length>0 && (
-              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+              <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
                 <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Datos clave</div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(110px, 1fr))', gap:12 }}>
-                  {datosClave.map(d => <ResumenDato key={d.l} label={d.l} valor={d.v} />)}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(95px, 1fr))', gap:8 }}>
+                  {datosClave.map(d => (
+                    <div key={d.l} style={{ background:c.surface, borderRadius:9, padding:'10px 12px', border:`1px solid ${c.border}` }}>
+                      <div style={{ fontSize:10.5, color:c.textMuted, marginBottom:4 }}>{d.l}</div>
+                      <div style={{ fontSize:15, fontWeight:700 }}>{d.v}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
             {/* Cerca de */}
             {distList.length>0 && (
-              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
+              <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
                 <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Cerca de</div>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {distList.map(d => (
-                    <div key={d.nombre} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:13 }}>
-                      <span style={{ color:c.textMuted, display:'inline-flex', alignItems:'center', gap:7 }}><Navigation size={13} style={{ color:c.textSubtle }}/>{d.nombre}</span>
-                      <span style={{ fontWeight:600 }}>{d.texto}</span>
+                <div style={{ display:'flex', flexDirection:'column' }}>
+                  {distList.map((d, i) => (
+                    <div key={d.nombre} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'9px 0', borderBottom:i<distList.length-1?`1px solid ${c.border}`:'none', fontSize:13 }}>
+                      <span style={{ color:c.textMuted, display:'inline-flex', alignItems:'center', gap:7 }}><Navigation size={12} style={{ color:c.textSubtle }}/>{d.nombre}</span>
+                      <span style={{ fontWeight:600 }}>{d.texto}{d.tiempo?` · ${d.tiempo}`:''}</span>
                     </div>
                   ))}
                 </div>
@@ -2750,26 +2772,35 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             )}
 
             {/* Estado */}
-            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
-              <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>Estado</div>
+            <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
+              <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Estado</div>
               <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                <Badge bg={c.surfaceAlt} color={c.text} style={{ border:`1px solid ${c.border}` }}>{prop.estado||'Para visitar'}</Badge>
-                {prop.proximaAccion ? <span style={{ fontSize:13, color:c.textMuted }}>Próxima acción: <strong style={{ color:c.text }}>{prop.proximaAccion}</strong></span> : <span style={{ fontSize:13, color:c.textSubtle }}>Sin próxima acción definida</span>}
+                <Badge bg={c.surface} color={c.text} style={{ border:`1px solid ${c.borderStrong}`, padding:'5px 12px' }}>{prop.estado||'Para visitar'}</Badge>
+                {prop.proximaAccion
+                  ? <span style={{ fontSize:13, color:c.textMuted }}>Próxima acción: <strong style={{ color:c.text }}>{prop.proximaAccion}</strong></span>
+                  : <span style={{ fontSize:13, color:c.textSubtle }}>Sin próxima acción definida</span>}
               </div>
             </div>
 
             {/* Comparativo */}
             {rankingActivas.length>1 && (
-              <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:18 }}>
-                <div style={{ fontSize:13, fontWeight:700, marginBottom:10 }}>Comparativo</div>
-                {rankPos>=0 ? (
-                  <div style={{ fontSize:14, color:c.text }}>
-                    Ranquea <strong style={{ color:c.accent }}>{rankPos+1}º de {rankingActivas.length}</strong> entre las propiedades de tu lista que cumplen los excluyentes.
+              rankPos>=0 ? (
+                <div style={{ background:c.accentSoft, borderRadius:12, padding:16, border:`1px solid ${c.accent}33`, display:'flex', alignItems:'center', gap:18 }}>
+                  <div style={{ textAlign:'center', flexShrink:0, lineHeight:1 }}>
+                    <div style={{ fontSize:44, fontWeight:800, color:c.accent }}>{rankPos+1}º</div>
+                    <div style={{ fontSize:11, color:c.accent, opacity:0.7, marginTop:2 }}>de {rankingActivas.length}</div>
                   </div>
-                ) : (
-                  <div style={{ fontSize:13, color:c.amber, display:'flex', alignItems:'center', gap:6 }}><AlertCircle size={14}/> No entra en el ranking porque no cumple todos los excluyentes.</div>
-                )}
-              </div>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:c.accent, marginBottom:3 }}>Posición en tu lista</div>
+                    <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>Entre las propiedades activas que cumplen los excluyentes.</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background:c.amberSoft, borderRadius:12, padding:16, border:`1px solid ${c.amber}33`, display:'flex', alignItems:'center', gap:12 }}>
+                  <AlertCircle size={20} style={{ color:c.amber, flexShrink:0 }} />
+                  <div style={{ fontSize:13, color:c.amber, lineHeight:1.5 }}>No entra en el ranking porque no cumple todos los excluyentes.</div>
+                </div>
+              )
             )}
 
           </div>
@@ -2819,18 +2850,6 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <Field label="Agente"><TextInput defaultValue={prop.agente} onCommit={v=>update('agente',v)} placeholder="Nombre" /></Field>
           <Field label="Teléfono del agente"><TextInput defaultValue={prop.telefonoAgente} onCommit={v=>update('telefonoAgente',v)} placeholder="+54 11 ..." /></Field>
         </div>
-        {isAdmin && (
-          <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${c.border}`, display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
-            <button onClick={()=>setShowCargaRapida(true)}
-              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:`0 2px 8px ${CLAUDE_ORANGE}4D` }}>
-              <ClaudeMark size={15} color="white" /> Cargar con Claude
-            </button>
-            <div style={{ fontSize:11, color:c.textMuted, lineHeight:1.5 }}>
-              Pegá el texto del aviso y <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> completa los campos automáticamente.<br />
-              <span style={{ color:c.textSubtle }}>IA de Anthropic</span>
-            </div>
-          </div>
-        )}
         <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginTop:4, marginBottom:10 }}>
           <div style={{ fontSize:12, fontWeight:600, color:c.textMuted }}>Datos físicos</div>
         </div>
@@ -3065,10 +3084,10 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', background:c.surface, borderRadius:16, padding:24, zIndex:101, width:'min(560px, 92vw)', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
               <div>
-                <div style={{ fontSize:16, fontWeight:700, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}><ClaudeMark size={19} /> Cargar con Claude</div>
+                <div style={{ fontSize:16, fontWeight:700, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}><LogoV size={20} /> Pegar aviso</div>
                 <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>
                   Copiá todo el texto del aviso de Zonaprop, Argenprop o MercadoLibre y pegalo acá.<br />
-                  <span style={{ color:c.textSubtle }}>Lo procesa <strong style={{ color:CLAUDE_ORANGE }}>Claude</strong> (Haiku 4.5), de Anthropic</span>
+                  <span style={{ color:c.textSubtle }}>Lo completa Claude (Haiku 4.5)</span>
                 </div>
               </div>
               <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, padding:4, display:'flex', flexShrink:0 }}><X size={18} /></button>
@@ -3083,8 +3102,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             <div style={{ display:'flex', gap:10, marginTop:14, justifyContent:'flex-end', alignItems:'center' }}>
               <Button variant="secondary" onClick={()=>setShowCargaRapida(false)}>Cancelar</Button>
               <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${CLAUDE_ORANGE}, #c4603f)`, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
-                {cargandoIA ? '⏳ Analizando...' : <><ClaudeMark size={15} color="white" /> Completar con Claude</>}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:c.accent, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
+                {cargandoIA ? 'Analizando...' : <><ClaudeMark size={15} color="white" /> Completar con Claude</>}
               </button>
             </div>
           </div>
@@ -3257,9 +3276,9 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
                   if (isMobile && i !== activeCol) return null;
                   return (
                     <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
-                      {p.fotos?.[0] ? (
+                      {(p.portada || p.fotos?.[0]) ? (
                         <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
-                          <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                          <img src={p.portada || p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
                         </div>
                       ) : (
                         <div style={{ width:'100%', height:90, borderRadius:9, background:semaforoBg(puntaje), marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center' }}>
