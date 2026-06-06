@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react';
-import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation } from 'lucide-react';
-import { auth, googleProvider, db, storage } from './firebase';
+import { createPortal } from 'react-dom';
+import { Home, MapPin, Heart, Lock, Plus, X, Check, Trash2, ChevronDown, ChevronRight, ChevronLeft, AlertCircle, Search, ArrowLeft, Wallet, Award, Image as ImageIcon, Ruler, Info, Star, ListChecks, SlidersHorizontal, Settings, LogOut, UserCheck, Clock, HelpCircle, BookOpen, Map, Navigation, ExternalLink, MoreHorizontal, Camera, Crop, Play, Clipboard } from 'lucide-react';
+import { auth, googleProvider, db, storage, functions } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, getDocs, onSnapshot, collection, addDoc, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { httpsCallable } from 'firebase/functions';
 
 // ============================================================
 // CONSTANTES
@@ -21,6 +23,26 @@ const ZONAS = [
 ];
 
 const TIPOS = ['PH','Casa','Departamento','Otro'];
+
+// PRECIOS_BARRIO_USADO — Zonaprop mayo 2026, columna "Usado" (USD/m², publicación)
+// Fuente: zonaprop.com.ar/blog/zpindex/ — actualizar mensualmente
+const PRECIOS_BARRIO_USADO = {
+  'Puerto Madero':5908,'Palermo':3051,'Núñez':2883,'Belgrano':2815,
+  'Colegiales':2610,'Recoleta':2616,'Chacarita':2600,'Coghlan':2583,
+  'Villa Urquiza':2579,'Saavedra':2529,'Retiro':2512,'Villa Ortúzar':2470,
+  'Villa Devoto':2440,'Parque Chas':2371,'Villa Pueyrredón':2234,
+  'Villa Crespo':2214,'Caballito':2181,'Villa del Parque':2123,
+  'Agronomía':2108,'Parque Chacabuco':2060,'Almagro':2034,
+  'Villa Santa Rita':2027,'Monte Castro':1985,'Villa Luro':1982,
+  'Paternal':1923,'San Telmo':1906,'Boedo':1883,'Barracas':1833,
+  'Villa General Mitre':1828,'Liniers':1851,'Flores':1789,'Mataderos':1754,
+  'San Cristóbal':1753,'Villa Real':1733,'Versalles':1730,'Monserrat':1726,
+  'San Nicolás':1746,'Vélez Sarsfield':1670,'Balvanera':1657,
+  'Floresta':1612,'Parque Patricios':1598,'Constitución':1510,
+  'Parque Avellaneda':1459,'La Boca':1472,'Villa Riachuelo':1407,
+  'Nueva Pompeya':1272,'Villa Lugano':963,
+};
+
 const SUBTIPOS = ['Estándar','Semipiso','Piso','Dúplex','Monoambiente','Loft','Penthouse','Triplex'];
 const DISPOSICIONES = ['Frente','Contrafrente','Interior','Lateral'];
 const ANUNCIANTES = ['Inmobiliaria','Dueño directo'];
@@ -76,6 +98,19 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 const UserContext = createContext(null);
 const useUser = () => useContext(UserContext);
+
+// Hook: detecta viewport mobile (≤ 768px) y se actualiza al hacer resize
+const useIsMobile = (breakpoint = 768) => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [breakpoint]);
+  return isMobile;
+};
 
 // ============================================================
 // TRACKING — métricas en /users/{uid}/stats/main
@@ -254,46 +289,46 @@ const ONBOARDING_SLIDES = [
 
 const GUIA_SECCIONES = [
   {
-    id: 'propiedades',
-    titulo: 'Propiedades',
+    id: 'cargar',
+    titulo: 'Cargar Propiedades',
     emoji: '🏠',
-    contenido: 'Es la vista principal. Cada propiedad tiene una card con su puntaje, precio y análisis financiero. Podés filtrar por zona, estado y favoritas.\n\nHacé clic en una propiedad para ver y editar todos sus datos: identificación, datos físicos, financieros, comodidades, puntajes y más.',
+    contenido: 'Hay dos formas de cargar una propiedad.\n\n**A mano:** tocás "+ Nueva propiedad" y completás los campos.\n\n**Con Carga Rápida ✨:** copiás el texto del aviso, lo pegás, y Valora completa precio, m², ambientes, dirección, comodidades y más. Los campos completados por IA quedan marcados con ✨ para que los revises. Todo es editable después.',
   },
   {
-    id: 'ranking',
-    titulo: 'Ranking',
-    emoji: '🏆',
-    contenido: 'Las propiedades se ordenan automáticamente de mayor a menor puntaje. Solo aparecen las que cumplen todos los excluyentes activos y no están descartadas.\n\nEl top 3 se destaca en cards grandes. El resto aparece en lista.',
-  },
-  {
-    id: 'pesos',
-    titulo: 'Pesos',
+    id: 'criterio',
+    titulo: 'Tu Criterio',
     emoji: '⚖️',
-    contenido: 'Cada criterio tiene un peso del 1 al 5. Cuanto más alto, más influye en el puntaje final.\n\nEl puntaje de una propiedad es: Σ(puntaje × peso) / Σ(10 × peso) × 100.\n\nEjemplo: si "Espacio exterior" tiene peso 5 y le ponés 8/10, eso pesa mucho más que "Ruido percibido" con peso 2.',
+    contenido: 'Valora evalúa cada propiedad con dos herramientas distintas.\n\n**Excluyentes** son condiciones de sí o no. Si marcás una como activa y una propiedad no la cumple, Valora lo señala con una alerta.\n\n**Pesos** indican cuánto te importa cada criterio, del 1 al 5. Cuanto mayor el peso, más influye ese criterio en el puntaje final.\n\nEl puntaje de cada propiedad combina la nota que le diste a cada criterio con el peso que le asignaste.',
   },
   {
-    id: 'excluyentes',
-    titulo: 'Excluyentes',
-    emoji: '🚫',
-    contenido: 'Son filtros duros. Si una propiedad no cumple TODOS los excluyentes activos, queda descartada automáticamente — no aparece en el ranking.\n\nDistinto de los pesos: acá no hay matices. Es sí o no.\n\nConfigurás cuáles excluyentes están activos en la sección Configuración.',
+    id: 'ranking-comparador',
+    titulo: 'Ranking y Comparador',
+    emoji: '🏆',
+    contenido: 'El **Ranking** ordena tus propiedades de mayor a menor puntaje. Las que no cumplen un excluyente activo aparecen señaladas.\n\nEl **Comparador** te permite seleccionar hasta 5 propiedades y verlas lado a lado: puntaje, precio, precio por m², análisis financiero, días en el mercado, views por día y más. La mejor opción de cada fila se resalta en verde.',
   },
   {
-    id: 'presupuesto',
-    titulo: 'Presupuesto',
+    id: 'precio-mercado',
+    titulo: 'Precio Real y Semáforo de Mercado',
     emoji: '💰',
-    contenido: 'Cargás una sola vez tus fuentes de fondos: venta de tu propiedad actual (rango mínimo y máximo), ahorros propios y aportes adicionales.\n\nValora suma todo y lo compara contra el costo de cada propiedad (precio + comisión + gastos). El resultado aparece en verde, ámbar o rojo en cada propiedad.\n\nEsto es privado — solo lo ven los admins.',
+    contenido: 'El **precio real** es el costo total de comprar: precio del aviso más comisión y gastos de escritura (los porcentajes se configuran en Configuración). Valora lo compara con tu presupuesto disponible e indica si entra en tu rango.\n\nTambién compara el precio por m² del aviso con el promedio del barrio.\n\nEl **Semáforo de Mercado** muestra dos indicadores:\n\n**Demanda:** la velocidad con que crecen las visualizaciones del aviso (views por día).\n\n**Historial de precio:** las variaciones de precio que registraste, con fecha y monto.',
   },
   {
-    id: 'configuracion',
+    id: 'mapa',
+    titulo: 'Mapa y Distancias',
+    emoji: '🗺️',
+    contenido: 'Al cargar la dirección de una propiedad, Valora muestra su ubicación en el mapa y calcula la distancia a los lugares de referencia que hayas configurado (trabajo, escuela, u otros).\n\nLos lugares de referencia se configuran una vez en Configuración y se aplican a todas las propiedades.',
+  },
+  {
+    id: 'busqueda',
+    titulo: 'Tu Búsqueda',
+    emoji: '🔍',
+    contenido: 'Herramientas para organizar el seguimiento de tu búsqueda.\n\n**Favoritas:** marcá propiedades con el corazón para filtrarlas rápido.\n\n**Descartar y Eliminar:** descartar envía la propiedad a la sección Descartadas, desde donde podés recuperarla. Eliminar la borra de forma permanente.\n\n**Estados:** cada propiedad tiene un estado de seguimiento — Para visitar, Visitada, Oferta hecha, En negociación. Tras la visita podés registrar tu impresión, fotos y notas.',
+  },
+  {
+    id: 'config',
     titulo: 'Configuración',
     emoji: '⚙️',
-    contenido: 'Acá personalizás Valora para tu búsqueda:\n\n• Parámetros de compra: comisión, gastos de escritura y otros (reformas, mudanza). Afectan el análisis de todas las propiedades.\n\n• Barrios deseados: los que seleccionás influyen en el criterio "Zona deseada".\n\n• Excluyentes: elegís cuáles están activos para tu búsqueda.\n\n• Lugares de referencia: guardás direcciones (trabajo, colegio) para calcular distancias con Google Maps (próximamente).',
-  },
-  {
-    id: 'descartadas',
-    titulo: 'Descartadas',
-    emoji: '🗑️',
-    contenido: 'Las propiedades que marcaste como "Descartada" o que no cumplen tus excluyentes activos aparecen acá.\n\nDesde esta vista podés recuperarlas si cambiás de opinión (solo admins).',
+    contenido: 'Desde Configuración ajustás los parámetros de Valora.\n\n**Presupuesto:** tus fuentes de fondos (venta de propiedad actual, ahorros, aportes). Valora las suma para el análisis financiero.\n\n**Criterios y excluyentes:** qué se evalúa y qué condiciones son obligatorias.\n\n**Comisión y gastos:** los porcentajes que usa el cálculo de precio real.\n\n**Lugares de referencia:** las direcciones para el cálculo de distancias.\n\nAlgunas secciones (presupuesto, notas privadas, datos de negociación) son visibles solo para administradores. Los invitados ven la información pública.',
   },
 ];
 
@@ -363,14 +398,21 @@ const Select = React.memo(({ value, onChange, options, placeholder }) => (
   </select>
 ));
 
-const Toggle = ({ checked, onChange, label }) => (
+const Toggle = ({ checked, onChange, label, aiBadge=false }) => (
   <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer', padding:'6px 0' }}>
     <div onClick={()=>onChange(!checked)} style={{ width:38, height:22, borderRadius:11, background:checked?c.accent:'#D5D1C7', position:'relative', transition:'background 200ms', flexShrink:0 }}>
       <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:checked?18:2, transition:'left 200ms', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
     </div>
     <span style={{ fontSize:14, color:c.text }}>{label}</span>
+    {aiBadge && <span title="Completado por IA — revisá" style={{ fontSize:11, color:c.accent, fontWeight:700, marginLeft:2 }}>✨</span>}
   </label>
 );
+
+const Toast = ({ msg }) => msg ? (
+  <div style={{ position:'fixed', bottom:80, left:'50%', transform:'translateX(-50%)', background:c.text, color:'white', padding:'12px 20px', borderRadius:12, fontSize:13, fontWeight:500, zIndex:300, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', whiteSpace:'nowrap', maxWidth:'calc(100vw - 40px)', textAlign:'center' }}>
+    {msg}
+  </div>
+) : null;
 
 const Slider = ({ value, onChange, min=0, max=10, label, weight, disabled=false }) => (
   <div style={{ marginBottom:14 }}>
@@ -467,47 +509,88 @@ const OnboardingModal = ({ onClose }) => {
 // MODAL GUÍA COMPLETA (ícono ?)
 // ============================================================
 
+// Parser de markdown simple: negritas y párrafos
+const renderMarkdown = (texto) => {
+  if (!texto) return null;
+  return texto.split('\n\n').map((parrafo, i) => {
+    const partes = parrafo.split(/\*\*(.+?)\*\*/g);
+    const contenido = partes.map((p, j) => j % 2 === 1 ? <strong key={j}>{p}</strong> : p);
+    return <p key={i} style={{ margin:'0 0 12px', fontSize:14, color:c.textMuted, lineHeight:1.75 }}>{contenido}</p>;
+  });
+};
+
 const GuiaModal = ({ onClose }) => {
-  const [secActiva, setSecActiva] = React.useState('propiedades');
-  const sec = GUIA_SECCIONES.find(s => s.id === secActiva);
+  const isMobile = useIsMobile();
+  const [secActiva, setSecActiva] = React.useState(GUIA_SECCIONES[0].id);
+  const sec = GUIA_SECCIONES.find(s => s.id === secActiva) || GUIA_SECCIONES[0];
+  const tabsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!isMobile || !tabsRef.current) return;
+    const btn = tabsRef.current.querySelector('[data-active="true"]');
+    if (btn) btn.scrollIntoView({ inline:'center', block:'nearest', behavior:'smooth' });
+  }, [secActiva, isMobile]);
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'40px 20px', overflow:'auto' }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:c.surface, borderRadius:16, maxWidth:680, width:'100%', boxShadow:'0 20px 60px rgba(30,45,74,0.25)', fontFamily:FONT, overflow:'hidden' }}>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.5)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:isMobile?'flex-end':'flex-start', justifyContent:'center', padding:isMobile?0:'40px 20px', overflow:isMobile?'hidden':'auto' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:c.surface, borderRadius:isMobile?'16px 16px 0 0':16, maxWidth:isMobile?undefined:680, width:'100%', boxShadow:'0 20px 60px rgba(30,45,74,0.25)', fontFamily:FONT, overflow:'hidden', display:'flex', flexDirection:'column', maxHeight:isMobile?'92vh':'85vh' }}>
+
         {/* Header */}
-        <div style={{ padding:'20px 24px', borderBottom:`1px solid ${c.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ padding:'18px 20px', borderBottom:`1px solid ${c.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
-            <h2 style={{ margin:0, fontSize:20, fontWeight:700, letterSpacing:'-0.01em' }}>Cómo funciona Valora</h2>
-            <p style={{ margin:'4px 0 0', fontSize:13, color:c.textMuted }}>Guía de uso completa</p>
+            <h2 style={{ margin:0, fontSize:18, fontWeight:700, letterSpacing:'-0.01em' }}>Cómo funciona Valora</h2>
+            <p style={{ margin:'3px 0 0', fontSize:12, color:c.textMuted }}>Guía de uso</p>
           </div>
           <button onClick={onClose} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:4 }}><X size={20} /></button>
         </div>
 
-        <div style={{ display:'grid', gridTemplateColumns:'200px 1fr' }}>
-          {/* Sidebar */}
-          <div style={{ borderRight:`1px solid ${c.border}`, padding:'12px 8px' }}>
-            {GUIA_SECCIONES.map(s => (
-              <button key={s.id} onClick={() => setSecActiva(s.id)}
-                style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', width:'100%', border:'none', borderRadius:10,
-                  background: secActiva===s.id ? c.accentSoft : 'transparent',
-                  color: secActiva===s.id ? c.accent : c.text,
-                  fontWeight: secActiva===s.id ? 600 : 400,
-                  fontSize:13, fontFamily:FONT, cursor:'pointer', textAlign:'left', transition:'all 150ms' }}
-                onMouseEnter={e=>{ if(secActiva!==s.id) e.currentTarget.style.background=c.surfaceAlt; }}
-                onMouseLeave={e=>{ if(secActiva!==s.id) e.currentTarget.style.background='transparent'; }}>
-                <span style={{ fontSize:16 }}>{s.emoji}</span>
-                {s.titulo}
-              </button>
-            ))}
+        {isMobile ? (
+          <>
+            {/* Tabs horizontales scrolleables */}
+            <div ref={tabsRef} style={{ display:'flex', gap:6, padding:'10px 14px', borderBottom:`1px solid ${c.border}`, overflowX:'auto', flexShrink:0, WebkitOverflowScrolling:'touch', scrollbarWidth:'none' }}>
+              {GUIA_SECCIONES.map(s => (
+                <button key={s.id} data-active={secActiva===s.id} onClick={() => setSecActiva(s.id)}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', border:'none', borderRadius:20, whiteSpace:'nowrap', flexShrink:0,
+                    background: secActiva===s.id ? c.accent : c.surfaceAlt,
+                    color: secActiva===s.id ? 'white' : c.text,
+                    fontWeight: secActiva===s.id ? 600 : 400,
+                    fontSize:13, fontFamily:FONT, cursor:'pointer' }}>
+                  <span style={{ fontSize:14 }}>{s.emoji}</span>
+                  {s.titulo}
+                </button>
+              ))}
+            </div>
+            {/* Contenido */}
+            <div style={{ padding:'20px', overflowY:'auto', flex:1 }}>
+              <h3 style={{ margin:'0 0 14px', fontSize:17, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
+              {renderMarkdown(sec.contenido)}
+            </div>
+          </>
+        ) : (
+          /* Desktop: sidebar + contenido */
+          <div style={{ display:'grid', gridTemplateColumns:'210px 1fr', flex:1, minHeight:0 }}>
+            <div style={{ borderRight:`1px solid ${c.border}`, padding:'12px 8px', overflowY:'auto' }}>
+              {GUIA_SECCIONES.map(s => (
+                <button key={s.id} onClick={() => setSecActiva(s.id)}
+                  style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', width:'100%', border:'none', borderRadius:10,
+                    background: secActiva===s.id ? c.accentSoft : 'transparent',
+                    color: secActiva===s.id ? c.accent : c.text,
+                    fontWeight: secActiva===s.id ? 600 : 400,
+                    fontSize:13, fontFamily:FONT, cursor:'pointer', textAlign:'left', transition:'background 150ms' }}
+                  onMouseEnter={e=>{ if(secActiva!==s.id) e.currentTarget.style.background=c.surfaceAlt; }}
+                  onMouseLeave={e=>{ if(secActiva!==s.id) e.currentTarget.style.background='transparent'; }}>
+                  <span style={{ fontSize:16 }}>{s.emoji}</span>
+                  {s.titulo}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding:'28px', overflowY:'auto' }}>
+              <div style={{ fontSize:30, marginBottom:12 }}>{sec.emoji}</div>
+              <h3 style={{ margin:'0 0 16px', fontSize:18, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
+              {renderMarkdown(sec.contenido)}
+            </div>
           </div>
-
-          {/* Contenido */}
-          <div style={{ padding:'28px 28px' }}>
-            <div style={{ fontSize:32, marginBottom:12 }}>{sec.emoji}</div>
-            <h3 style={{ margin:'0 0 14px', fontSize:18, fontWeight:700, color:c.text }}>{sec.titulo}</h3>
-            <p style={{ margin:0, fontSize:14, color:c.textMuted, lineHeight:1.8, whiteSpace:'pre-line' }}>{sec.contenido}</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -656,20 +739,115 @@ const WaitingScreen = ({ user, onLogout }) => (
 
 const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, onLogout, onAbrirGestionUsuarios, onAbrirGuia, onAbrirMigracion, migracionDisponible }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const isMobile = useIsMobile();
 
   const items = [
-    { id:'lista', label:'Propiedades', icon:Home },
-    { id:'ranking', label:'Ranking', icon:Award },
-    { id:'descartadas', label:'Descartadas', icon:X },
-    { id:'pesos', label:'Pesos', icon:SlidersHorizontal },
+    { id:'lista', label:'Propiedades', short:'Props', icon:Home },
+    { id:'ranking', label:'Ranking', short:'Ranking', icon:Award },
+    { id:'descartadas', label:'Descartadas', short:'Descart.', icon:X },
+    { id:'pesos', label:'Pesos', short:'Pesos', icon:SlidersHorizontal },
     ...(isAdmin ? [
-      { id:'presupuesto', label:'Presupuesto', icon:Wallet, locked:true },
-      { id:'configuracion', label:'Configuración', icon:Settings, locked:true },
+      { id:'presupuesto', label:'Presupuesto', short:'Presup.', icon:Wallet, locked:true },
+      { id:'configuracion', label:'Configuración', short:'Config', icon:Settings, locked:true },
     ] : []),
   ];
 
   const inicial = (currentUser.displayName || currentUser.email)[0].toUpperCase();
 
+  // Avatar + dropdown de usuario — reutilizado en desktop y mobile
+  const userMenu = (
+    <div style={{ position:'relative' }}>
+      <button onClick={()=>setShowUserMenu(s=>!s)}
+        style={{ display:'flex', alignItems:'center', gap:9, background:c.surface, border:`1px solid ${c.borderStrong}`, padding:'5px 5px 5px 12px', borderRadius:20, cursor:'pointer', fontFamily:FONT, position:'relative' }}>
+        <span style={{ fontSize:13, fontWeight:500, color:c.text }}>{currentUser.displayName?.split(' ')[0] || currentUser.email.split('@')[0]}</span>
+        <div style={{ width:26, height:26, borderRadius:'50%', background:isAdmin?c.text:c.borderStrong, color:'white', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:11 }}>{inicial}</div>
+        {isAdmin && pendientes > 0 && (
+          <div style={{ position:'absolute', top:-2, right:-2, width:16, height:16, borderRadius:'50%', background:c.accent, color:'white', fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{pendientes}</div>
+        )}
+      </button>
+
+      {showUserMenu && (
+        <>
+          <div onClick={()=>setShowUserMenu(false)} style={{ position:'fixed', inset:0, zIndex:99 }} />
+          <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 12px 30px rgba(30,45,74,0.15)', padding:6, zIndex:100, minWidth:240 }}>
+            <div style={{ padding:'10px 12px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
+              <div style={{ fontSize:13, fontWeight:600 }}>{currentUser.displayName || 'Sin nombre'}</div>
+              <div style={{ fontSize:11, color:c.textMuted, marginTop:2 }}>{currentUser.email}</div>
+              <Badge bg={isAdmin?c.text:c.borderStrong} color="white" style={{ marginTop:6 }}>{isAdmin ? 'Admin' : 'Invitado'}</Badge>
+            </div>
+            {isAdmin && (
+              <button onClick={()=>{setShowUserMenu(false); onAbrirGestionUsuarios();}}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT, justifyContent:'space-between' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <Settings size={14} style={{ color:c.textMuted }} />
+                  Gestionar usuarios
+                </span>
+                {pendientes > 0 && <Badge bg={c.accent} color="white">{pendientes}</Badge>}
+              </button>
+            )}
+            {migracionDisponible && (
+              <button onClick={()=>{setShowUserMenu(false); onAbrirMigracion();}}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:c.amberSoft, border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.amber, fontSize:13, fontFamily:FONT, fontWeight:600, marginBottom:4 }}>
+                <Clock size={14} /> Migrar datos al nuevo sistema
+              </button>
+            )}
+            <button onClick={()=>{setShowUserMenu(false); onLogout();}}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT }}
+              onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <LogOut size={14} style={{ color:c.textMuted }} />
+              Cerrar sesión
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // ---- MOBILE: header compacto arriba + bottom tab bar fijo ----
+  if (isMobile) {
+    return (
+      <>
+        <div style={{ position:'sticky', top:0, zIndex:50, background:'rgba(247,246,242,0.95)', backdropFilter:'blur(12px)', borderBottom:`1px solid ${c.border}` }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px' }}>
+            <LogoV size={30} />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:15, lineHeight:1.1, color:c.text, letterSpacing:'-0.01em' }}>Valora</div>
+              <div style={{ fontSize:10, color:c.textMuted, lineHeight:1.2, marginTop:1 }}>
+                {propiedades.length} {propiedades.length===1?'propiedad':'propiedades'}
+              </div>
+            </div>
+            {isAdmin && (
+              <button onClick={onAbrirGuia} title="Cómo funciona Valora"
+                style={{ border:'none', background:'transparent', cursor:'pointer', color:c.textMuted, padding:6, borderRadius:8, display:'flex', alignItems:'center' }}>
+                <HelpCircle size={20} />
+              </button>
+            )}
+            {userMenu}
+          </div>
+        </div>
+
+        <nav style={{ position:'fixed', bottom:0, left:0, width:'100%', zIndex:60, background:'rgba(247,246,242,0.97)', backdropFilter:'blur(12px)', borderTop:`1px solid ${c.border}`, display:'flex', paddingBottom:'env(safe-area-inset-bottom)' }}>
+          {items.map(item => {
+            const Icon = item.icon;
+            const active = view === item.id;
+            return (
+              <button key={item.id} onClick={()=>setView(item.id)}
+                style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, padding:'8px 2px', minHeight:56, color:active?c.accent:c.textMuted, fontFamily:FONT, position:'relative' }}>
+                <Icon size={19} />
+                <span style={{ fontSize:10, fontWeight:active?700:500, letterSpacing:'-0.01em', whiteSpace:'nowrap' }}>{item.short}</span>
+                {item.locked && <Lock size={8} style={{ position:'absolute', top:7, left:'calc(50% + 9px)', color:c.accent }} />}
+              </button>
+            );
+          })}
+        </nav>
+      </>
+    );
+  }
+
+  // ---- DESKTOP: barra horizontal (original) ----
   return (
     <div style={{ position:'sticky', top:0, zIndex:50, background:'rgba(247,246,242,0.95)', backdropFilter:'blur(12px)', borderBottom:`1px solid ${c.border}` }}>
       <div style={{ maxWidth:1240, margin:'0 auto', padding:'12px 24px', display:'flex', alignItems:'center', gap:24, flexWrap:'wrap' }}>
@@ -710,54 +888,7 @@ const NavBar = ({ view, setView, currentUser, isAdmin, propiedades, pendientes, 
           </button>
         )}
 
-        <div style={{ position:'relative' }}>
-          <button onClick={()=>setShowUserMenu(s=>!s)}
-            style={{ display:'flex', alignItems:'center', gap:9, background:c.surface, border:`1px solid ${c.borderStrong}`, padding:'5px 5px 5px 12px', borderRadius:20, cursor:'pointer', fontFamily:FONT, position:'relative' }}>
-            <span style={{ fontSize:13, fontWeight:500, color:c.text }}>{currentUser.displayName?.split(' ')[0] || currentUser.email.split('@')[0]}</span>
-            <div style={{ width:26, height:26, borderRadius:'50%', background:isAdmin?c.text:c.borderStrong, color:'white', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:600, fontSize:11 }}>{inicial}</div>
-            {isAdmin && pendientes > 0 && (
-              <div style={{ position:'absolute', top:-2, right:-2, width:16, height:16, borderRadius:'50%', background:c.accent, color:'white', fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>{pendientes}</div>
-            )}
-          </button>
-
-          {showUserMenu && (
-            <>
-              <div onClick={()=>setShowUserMenu(false)} style={{ position:'fixed', inset:0, zIndex:99 }} />
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 12px 30px rgba(30,45,74,0.15)', padding:6, zIndex:100, minWidth:240 }}>
-                <div style={{ padding:'10px 12px', borderBottom:`1px solid ${c.border}`, marginBottom:4 }}>
-                  <div style={{ fontSize:13, fontWeight:600 }}>{currentUser.displayName || 'Sin nombre'}</div>
-                  <div style={{ fontSize:11, color:c.textMuted, marginTop:2 }}>{currentUser.email}</div>
-                  <Badge bg={isAdmin?c.text:c.borderStrong} color="white" style={{ marginTop:6 }}>{isAdmin ? 'Admin' : 'Invitado'}</Badge>
-                </div>
-                {isAdmin && (
-                  <button onClick={()=>{setShowUserMenu(false); onAbrirGestionUsuarios();}}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT, justifyContent:'space-between' }}
-                    onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                    onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                    <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <Settings size={14} style={{ color:c.textMuted }} />
-                      Gestionar usuarios
-                    </span>
-                    {pendientes > 0 && <Badge bg={c.accent} color="white">{pendientes}</Badge>}
-                  </button>
-                )}
-                {migracionDisponible && (
-                  <button onClick={()=>{setShowUserMenu(false); onAbrirMigracion();}}
-                    style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:c.amberSoft, border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.amber, fontSize:13, fontFamily:FONT, fontWeight:600, marginBottom:4 }}>
-                    <Clock size={14} /> Migrar datos al nuevo sistema
-                  </button>
-                )}
-                <button onClick={()=>{setShowUserMenu(false); onLogout();}}
-                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', width:'100%', background:'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', color:c.text, fontSize:13, fontFamily:FONT }}
-                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
-                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <LogOut size={14} style={{ color:c.textMuted }} />
-                  Cerrar sesión
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        {userMenu}
       </div>
     </div>
   );
@@ -842,7 +973,10 @@ const GestionUsuariosModal = ({ usuarios, currentUser, onAprobar, onRechazar, on
 // PROPCARD
 // ============================================================
 
-const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) => {
+const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDescartar, onEliminar, onToggleFavorita }) => {
+  const [showMenu, setShowMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState(null);
+  const btnRef = React.useRef(null);
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const cumple = cumpleExcluyentes(prop, config?.excluyentesActivos, config?.ambientesMinimos);
   const analisis = calcularAnalisis(prop, presupuesto, config);
@@ -853,11 +987,23 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
     : semaforoBg(puntaje);
   const eColor = prop.estado==='Visitada'?c.green : (prop.estado==='Oferta hecha'||prop.estado==='En negociación')?c.purple : prop.estado==='Descartada'?c.red : c.amber;
 
+  const abrirMenu = (e) => {
+    e.stopPropagation();
+    if (showMenu) { setShowMenu(false); return; }
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const menuHeight = 120;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow < menuHeight ? rect.top - menuHeight - 6 : rect.bottom + 6;
+    setMenuPos({ top, right: window.innerWidth - rect.right });
+    setShowMenu(true);
+  };
+
   return (
-    <Card hoverable onClick={onClick} style={{ opacity:1 }}>
+    <Card hoverable onClick={onClick} style={{ opacity:!cumple ? 0.55 : 1 }}>
       <div style={{ height:140, background:hColor, position:'relative', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
-        {prop.fotos?.[0]
-          ? <img src={prop.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
+        {prop.portada
+          ? <img src={prop.portada} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', position:'absolute', inset:0 }} />
           : <ImageIcon size={30} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
         }
         <div style={{ position:'absolute', top:10, left:10, background:c.surface, padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:500, display:'flex', alignItems:'center', gap:5, boxShadow:shadow.sm }}>
@@ -865,9 +1011,45 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick }) =>
           {prop.estado||'Sin estado'}
         </div>
         {isAdmin && prop.favorita && (
-          <div style={{ position:'absolute', top:10, right:10, width:28, height:28, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
+          <div style={{ position:'absolute', top:10, right:44, width:28, height:28, borderRadius:'50%', background:c.surface, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm, pointerEvents:'none' }}>
             <Heart size={13} fill={c.accent} color={c.accent} />
           </div>
+        )}
+        {isAdmin && (
+          <div style={{ position:'absolute', top:10, right:10 }} onClick={e=>e.stopPropagation()}>
+            <button ref={btnRef} onClick={abrirMenu}
+              style={{ width:28, height:28, borderRadius:'50%', background:c.surface, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:shadow.sm }}>
+              <MoreHorizontal size={14} color={c.textMuted} />
+            </button>
+          </div>
+        )}
+        {showMenu && menuPos && createPortal(
+          <>
+            <div onClick={e=>{e.stopPropagation(); setShowMenu(false);}} style={{ position:'fixed', inset:0, zIndex:9998 }} />
+            <div style={{ position:'fixed', top:menuPos.top, right:menuPos.right, background:c.surface, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:shadow.hover, padding:4, zIndex:9999, minWidth:156, fontFamily:FONT }} onClick={e=>e.stopPropagation()}>
+              <button onClick={e=>{e.stopPropagation(); onToggleFavorita(prop.id, !prop.favorita); setShowMenu(false);}}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Heart size={12} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
+                {prop.favorita ? 'Quitar favorita' : 'Marcar favorita'}
+              </button>
+              <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onDescartar(prop.id);}}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.text, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <X size={12} /> Descartar
+              </button>
+              <div style={{ borderTop:`1px solid ${c.border}`, margin:'3px 0' }} />
+              <button onClick={e=>{e.stopPropagation(); setShowMenu(false); onEliminar(prop.id);}}
+                style={{ display:'flex', alignItems:'center', gap:7, width:'100%', padding:'7px 9px', background:'transparent', border:'none', borderRadius:7, cursor:'pointer', fontSize:12, fontFamily:FONT, color:c.red, textAlign:'left' }}
+                onMouseEnter={e=>e.currentTarget.style.background=c.redSoft}
+                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Trash2 size={12} /> Eliminar
+              </button>
+            </div>
+          </>,
+          document.body
         )}
         <div style={{ position:'absolute', bottom:10, right:10, background:c.surface, padding:'5px 11px', borderRadius:8, fontSize:18, fontWeight:700, color:colorPuntaje(puntaje), boxShadow:shadow.sm }}>
           {puntaje}
@@ -952,21 +1134,68 @@ const StatsAdmin = ({ presupuesto, config, topProp }) => {
 };
 
 // ============================================================
+// FILTRO DROPDOWN
+// ============================================================
+
+const FiltroDropdown = ({ label, options, selected, onToggle, onClear }) => {
+  const [open, setOpen] = useState(false);
+  const hasActive = selected.length > 0;
+  return (
+    <div style={{ position:'relative' }}>
+      {open && <div onClick={()=>setOpen(false)} style={{ position:'fixed', inset:0, zIndex:49 }} />}
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', border:`1px solid ${hasActive?c.text:c.borderStrong}`, borderRadius:20, background:hasActive?c.text:'transparent', color:hasActive?'white':c.text, fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:FONT, transition:'all 150ms', whiteSpace:'nowrap' }}>
+        {label}
+        {hasActive && <span style={{ background:'rgba(255,255,255,0.25)', borderRadius:10, padding:'1px 6px', fontSize:11, fontWeight:700 }}>{selected.length}</span>}
+        <ChevronDown size={13} style={{ opacity:0.6, transform:open?'rotate(180deg)':'none', transition:'transform 150ms' }} />
+      </button>
+      {open && (
+        <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 8px 24px rgba(30,45,74,0.12)', padding:8, zIndex:50, minWidth:200, maxHeight:300, overflowY:'auto' }}>
+          {options.map(opt => {
+            const active = selected.includes(opt.value);
+            return (
+              <button key={opt.value} onClick={()=>onToggle(opt.value)}
+                style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, width:'100%', padding:'8px 10px', background:active?c.surfaceAlt:'transparent', border:'none', borderRadius:8, cursor:'pointer', fontFamily:FONT, textAlign:'left', fontSize:13 }}>
+                <span style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${active?c.accent:c.border}`, background:active?c.accent:'transparent', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    {active && <Check size={10} color="white" strokeWidth={3} />}
+                  </div>
+                  <span style={{ color:c.text }}>{opt.label}</span>
+                </span>
+                {opt.count !== undefined && <span style={{ fontSize:11, color:c.textMuted }}>{opt.count}</span>}
+              </button>
+            );
+          })}
+          {hasActive && (
+            <button onClick={()=>{ onClear(); setOpen(false); }}
+              style={{ display:'flex', alignItems:'center', gap:4, width:'100%', padding:'7px 10px', background:'transparent', border:'none', borderTop:`1px solid ${c.border}`, marginTop:4, cursor:'pointer', fontSize:12, color:c.textMuted, fontFamily:FONT }}>
+              <X size={11} /> Limpiar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
 // LISTA VIEW
 // ============================================================
 
-const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp }) => {
+const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp, onDescartar, onEliminar, onToggleFavorita }) => {
   const { uid } = useUser();
+  const isMobile = useIsMobile();
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
     if (p.estado === 'Descartada') return false;
-    if (filtros.zona && p.zona !== filtros.zona) return false;
-    if (filtros.estado && p.estado !== filtros.estado) return false;
+    if (filtros.zonas.length > 0 && !filtros.zonas.includes(p.zona)) return false;
+    if (filtros.estados.length > 0 && !filtros.estados.includes(p.estado)) return false;
     if (filtros.busqueda) {
       const q = filtros.busqueda.toLowerCase();
       if (!(p.nombre||'').toLowerCase().includes(q) && !(p.zona||'').toLowerCase().includes(q) && !(p.direccion||'').toLowerCase().includes(q)) return false;
     }
     if (isAdmin && filtros.soloFavoritas && !p.favorita) return false;
+    if (filtros.tipos.length > 0 && !filtros.tipos.includes(p.tipo)) return false;
     return true;
   }).sort((a,b) => calcularPuntaje(b.puntajes,criterios) - calcularPuntaje(a.puntajes,criterios)), [propiedades, criterios, filtros, isAdmin, config]);
 
@@ -983,7 +1212,7 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
   const favs = isAdmin ? propiedades.filter(p=>p.favorita).length : 0;
 
   return (
-    <div style={{ maxWidth:1240, margin:'0 auto', padding:'30px 24px 64px' }}>
+    <div style={{ maxWidth:1240, margin:'0 auto', padding:isMobile?'20px 14px 88px':'30px 24px 64px' }}>
       {(() => {
         const activas = propiedades.filter(p => p.estado !== 'Descartada');
         return (
@@ -1003,17 +1232,44 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
           <Search size={15} style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', color:c.textMuted }} />
           <input type="text" defaultValue={filtros.busqueda||''} onChange={e=>setFiltros(f=>({...f, busqueda:e.target.value}))} placeholder="Buscar por nombre, barrio o dirección..." style={{ ...iS, paddingLeft:38 }} />
         </div>
-        {zonas.length > 0 && (
-          <div style={{ display:'flex', gap:7, flexWrap:'wrap', marginBottom:8 }}>
-            <Chip active={!filtros.zona} onClick={()=>setFiltros(f=>({...f, zona:''}))}>Todas</Chip>
-            {zonas.map(([z,n]) => <Chip key={z} active={filtros.zona===z} onClick={()=>setFiltros(f=>({...f, zona:f.zona===z?'':z}))}>{z} ({n})</Chip>)}
+        {zonas.length > 0 || true ? (
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+            {zonas.length > 0 && (
+              <FiltroDropdown
+                label="Barrio"
+                options={zonas.map(([z,n]) => ({ value:z, label:z, count:n }))}
+                selected={filtros.zonas}
+                onToggle={z => setFiltros(f => ({ ...f, zonas: f.zonas.includes(z) ? f.zonas.filter(x=>x!==z) : [...f.zonas, z] }))}
+                onClear={() => setFiltros(f => ({ ...f, zonas:[] }))}
+              />
+            )}
+            <FiltroDropdown
+              label="Estado"
+              options={ESTADOS.filter(e=>e!=='Descartada').map(e => ({ value:e, label:e }))}
+              selected={filtros.estados}
+              onToggle={e => setFiltros(f => ({ ...f, estados: f.estados.includes(e) ? f.estados.filter(x=>x!==e) : [...f.estados, e] }))}
+              onClear={() => setFiltros(f => ({ ...f, estados:[] }))}
+            />
+            <FiltroDropdown
+              label="Tipo"
+              options={TIPOS.map(t => ({ value:t, label:t }))}
+              selected={filtros.tipos}
+              onToggle={t => setFiltros(f => ({ ...f, tipos: f.tipos.includes(t) ? f.tipos.filter(x=>x!==t) : [...f.tipos, t] }))}
+              onClear={() => setFiltros(f => ({ ...f, tipos:[] }))}
+            />
+            {isAdmin && (
+              <Chip active={filtros.soloFavoritas} onClick={()=>setFiltros(f=>({...f, soloFavoritas:!f.soloFavoritas}))}>
+                <Heart size={10} fill={filtros.soloFavoritas?'white':'none'} /> Favoritas
+              </Chip>
+            )}
+            {(filtros.zonas.length > 0 || filtros.estados.length > 0 || filtros.tipos.length > 0 || filtros.soloFavoritas) && (
+              <button onClick={()=>setFiltros(f=>({...f, zonas:[], estados:[], tipos:[], soloFavoritas:false}))}
+                style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, fontSize:12, fontFamily:FONT, display:'flex', alignItems:'center', gap:4, padding:'4px 8px', borderRadius:8 }}>
+                <X size={12} /> Limpiar filtros
+              </button>
+            )}
           </div>
-        )}
-        <div style={{ display:'flex', gap:7, flexWrap:'wrap' }}>
-          <Chip active={!filtros.estado} onClick={()=>setFiltros(f=>({...f, estado:''}))}>Cualquier estado</Chip>
-          {ESTADOS.filter(e=>e!=='Descartada').map(e => <Chip key={e} active={filtros.estado===e} onClick={()=>setFiltros(f=>({...f, estado:f.estado===e?'':e}))}>{e}</Chip>)}
-          {isAdmin && <Chip active={filtros.soloFavoritas} onClick={()=>setFiltros(f=>({...f, soloFavoritas:!f.soloFavoritas}))}><Heart size={10} fill={filtros.soloFavoritas?'white':'none'} /> Favoritas</Chip>}
-        </div>
+        ) : null}
       </div>
 
       {filtradas.length === 0 ? (
@@ -1034,8 +1290,8 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
           {propiedades.length===0 && isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={15} /> Nueva propiedad</Button>}
         </Card>
       ) : (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:18 }}>
-          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} />)}
+        <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill, minmax(280px, 1fr))', gap:isMobile?14:18 }}>
+          {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} onDescartar={onDescartar} onEliminar={onEliminar} onToggleFavorita={onToggleFavorita} />)}
         </div>
       )}
     </div>
@@ -1043,15 +1299,248 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
 };
 
 // Helper thumbnail reutilizable en cards
-const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
-  const url = fotos?.[0];
-  return url ? (
-    <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden', flexShrink:0 }}>
-      <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-    </div>
-  ) : (
-    <div style={{ width:size, height:size, borderRadius:radius, background:semaforoBg(puntaje||0), display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-      <ImageIcon size={size*0.3} style={{ color:colorPuntaje(puntaje||0), opacity:0.4 }} />
+// ============================================================
+// PORTADA — subida + recorte (exclusiva, separada de la galería)
+// ============================================================
+
+const subirBlobPortada = async (blob, userId, propId) => {
+  const storageRef = ref(storage, `properties/${userId}/${propId}/portada-${Date.now()}.jpg`);
+  const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
+  await new Promise((resolve, reject) => task.on('state_changed', null, reject, resolve));
+  return getDownloadURL(task.snapshot.ref);
+};
+
+const RecortadorPortada = ({ src, onCancel, onConfirm }) => {
+  const [dims, setDims] = useState(null);
+  const [crop, setCrop] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const imgRef = React.useRef(null);
+  const natural = React.useRef({ w:0, h:0 });
+  const drag = React.useRef(null);
+
+  const MAXBOX_W = Math.min(window.innerWidth * 0.86, 560);
+  const MAXBOX_H = window.innerHeight * 0.62;
+
+  const onImgLoad = (e) => {
+    if (dims) return;
+    const nw = e.target.naturalWidth, nh = e.target.naturalHeight;
+    natural.current = { w:nw, h:nh };
+    const scale = Math.min(MAXBOX_W / nw, MAXBOX_H / nh, 1);
+    const dw = Math.round(nw * scale), dh = Math.round(nh * scale);
+    setDims({ dw, dh });
+    const cw = Math.round(dw * 0.8), ch = Math.round(dh * 0.8);
+    setCrop({ x: Math.round((dw-cw)/2), y: Math.round((dh-ch)/2), w: cw, h: ch });
+  };
+
+  const pointerXY = (e) => {
+    const r = imgRef.current.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+
+  const onMove = (e) => {
+    if (!drag.current || !dims) return;
+    const p = pointerXY(e);
+    const { mode, start, orig } = drag.current;
+    let { x, y, w, h } = orig;
+    const dx = p.x - start.x, dy = p.y - start.y;
+    const MIN = 40;
+    if (mode === 'move') {
+      x = Math.max(0, Math.min(orig.x + dx, dims.dw - w));
+      y = Math.max(0, Math.min(orig.y + dy, dims.dh - h));
+    } else {
+      if (mode.includes('e')) w = Math.max(MIN, Math.min(orig.w + dx, dims.dw - orig.x));
+      if (mode.includes('s')) h = Math.max(MIN, Math.min(orig.h + dy, dims.dh - orig.y));
+      if (mode.includes('w')) { const nx = Math.max(0, Math.min(orig.x + dx, orig.x + orig.w - MIN)); x = nx; w = orig.w + (orig.x - nx); }
+      if (mode.includes('n')) { const ny = Math.max(0, Math.min(orig.y + dy, orig.y + orig.h - MIN)); y = ny; h = orig.h + (orig.y - ny); }
+    }
+    setCrop({ x, y, w, h });
+  };
+
+  const endDrag = () => {
+    drag.current = null;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', endDrag);
+  };
+
+  const startDrag = (mode) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    drag.current = { mode, start: pointerXY(e), orig: { ...crop } };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', endDrag);
+  };
+
+  const confirmar = async () => {
+    if (!crop || !dims) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const scale = natural.current.w / dims.dw;
+      const outW = Math.round(crop.w * scale), outH = Math.round(crop.h * scale);
+      const cap = outW > MAX_W ? MAX_W / outW : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(outW * cap);
+      canvas.height = Math.round(outH * cap);
+      canvas.getContext('2d').drawImage(imgRef.current, crop.x*scale, crop.y*scale, crop.w*scale, crop.h*scale, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', QUALITY));
+      await onConfirm(blob);
+    } catch {
+      setError('No se pudo guardar la portada. Probá de nuevo.');
+      setBusy(false);
+    }
+  };
+
+  return createPortal(
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:3000, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:20, fontFamily:FONT }}>
+      <div style={{ color:'white', fontSize:14, fontWeight:600, marginBottom:14 }}>Recortá la portada</div>
+      <img src={src} onLoad={onImgLoad} alt="" style={{ display:'none' }} />
+      {dims && (
+        <div style={{ position:'relative', width:dims.dw, height:dims.dh, touchAction:'none', userSelect:'none' }}>
+          <img ref={imgRef} src={src} draggable={false} alt="" style={{ width:dims.dw, height:dims.dh, display:'block', borderRadius:4 }} />
+          {crop && <>
+            <div onPointerDown={startDrag('move')}
+              style={{ position:'absolute', left:crop.x, top:crop.y, width:crop.w, height:crop.h, border:'2px solid white', boxShadow:'0 0 0 9999px rgba(0,0,0,0.5)', cursor:'move', boxSizing:'border-box' }} />
+            {['nw','ne','sw','se'].map(corner => {
+              const pos = { nw:{left:crop.x-8, top:crop.y-8}, ne:{left:crop.x+crop.w-8, top:crop.y-8}, sw:{left:crop.x-8, top:crop.y+crop.h-8}, se:{left:crop.x+crop.w-8, top:crop.y+crop.h-8} }[corner];
+              return <div key={corner} onPointerDown={startDrag(corner)}
+                style={{ position:'absolute', ...pos, width:17, height:17, borderRadius:'50%', background:'white', border:`2px solid ${c.accent}`, cursor:`${corner}-resize`, touchAction:'none' }} />;
+            })}
+          </>}
+        </div>
+      )}
+      {error && <div style={{ color:'#ff8a8a', fontSize:12, marginTop:12 }}>{error}</div>}
+      <div style={{ display:'flex', gap:10, marginTop:18 }}>
+        <button onClick={onCancel} disabled={busy}
+          style={{ padding:'10px 18px', borderRadius:10, border:'1px solid rgba(255,255,255,0.3)', background:'transparent', color:'white', cursor:'pointer', fontSize:13, fontFamily:FONT }}>Cancelar</button>
+        <button onClick={confirmar} disabled={busy || !crop}
+          style={{ padding:'10px 18px', borderRadius:10, border:'none', background:c.accent, color:'white', cursor:busy?'default':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, opacity:busy?0.6:1 }}>{busy?'Guardando...':'Usar como portada'}</button>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+const PortadaThumb = ({ prop, propId, userId, update, isAdmin, size=96, radius=14, puntaje }) => {
+  const { uid } = useUser();
+  const isMobile = useIsMobile();
+  const fileRef = React.useRef(null);
+  const [editSrc, setEditSrc] = useState(null);
+  const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuMsg, setMenuMsg] = useState(null);
+  const url = prop.portada;
+
+  // Ctrl+V solo escucha cuando el cartelito está abierto (no global)
+  React.useEffect(() => {
+    if (!isAdmin || !menuOpen) return;
+    const onPaste = (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of items) {
+        if (it.type && it.type.startsWith('image/')) {
+          const file = it.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const reader = new FileReader();
+            reader.onload = () => { setEditSrc(reader.result); setMenuOpen(false); };
+            reader.readAsDataURL(file);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [isAdmin, menuOpen]);
+
+  const elegir = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setEditSrc(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const onSlotClick = () => {
+    if (isMobile) { fileRef.current?.click(); }
+    else { setMenuMsg(null); setMenuOpen(o => !o); }
+  };
+
+  const pegarDesdePortapapeles = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const tipo = item.types.find(t => t.startsWith('image/'));
+        if (tipo) {
+          const blob = await item.getType(tipo);
+          const reader = new FileReader();
+          reader.onload = () => { setEditSrc(reader.result); setMenuOpen(false); };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      }
+      setMenuMsg('No hay ninguna imagen copiada. Hacé una captura y reintentá.');
+    } catch {
+      setMenuMsg('No pude leer el portapapeles. Probá con Ctrl+V o "Elegir archivo".');
+    }
+  };
+
+  const guardar = async (blob) => {
+    const nuevaUrl = await subirBlobPortada(blob, userId, propId);
+    if (url) { try { await deleteObject(ref(storage, url)); } catch { /* ignore */ } }
+    update('portada', nuevaUrl);
+    trackEvent(uid, 'fotosSubidas');
+    setEditSrc(null);
+  };
+
+  const menuBtn = { display:'flex', alignItems:'center', gap:8, width:'100%', padding:'9px 11px', border:'none', background:'transparent', borderRadius:8, cursor:'pointer', fontSize:13, fontFamily:FONT, color:c.text, textAlign:'left' };
+
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}
+      onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}>
+      {url ? (
+        <div style={{ width:size, height:size, borderRadius:radius, overflow:'hidden' }}>
+          <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+        </div>
+      ) : (
+        <div style={{ width:size, height:size, borderRadius:radius, background:semaforoBg(puntaje||0), display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <ImageIcon size={size*0.3} style={{ color:colorPuntaje(puntaje||0), opacity:0.4 }} />
+        </div>
+      )}
+      {isAdmin && (
+        <>
+          <button onClick={onSlotClick} title={url?'Cambiar portada':'Agregar portada'}
+            style={{ position:'absolute', inset:0, borderRadius:radius, border:'none', cursor:'pointer',
+              background: url ? (hover||menuOpen?'rgba(0,0,0,0.45)':'transparent') : 'transparent',
+              display:'flex', alignItems: url?'flex-end':'center', justifyContent:'center', padding:6,
+              opacity: url ? (hover||menuOpen?1:0) : 1, transition:'all 150ms' }}>
+            {!url
+              ? <span style={{ fontSize:10, fontWeight:600, color:colorPuntaje(puntaje||0) }}>+ portada</span>
+              : <span style={{ fontSize:10, fontWeight:600, color:'white', background:'rgba(0,0,0,0.55)', padding:'3px 7px', borderRadius:6, display:'flex', alignItems:'center', gap:4 }}><Crop size={11} /> Cambiar</span>}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={elegir} />
+          {menuOpen && !isMobile && (
+            <>
+              <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+              <div style={{ position:'absolute', top:size+8, left:0, zIndex:41, background:c.surface, border:`1px solid ${c.border}`, borderRadius:12, boxShadow:'0 8px 24px rgba(30,45,74,0.16)', padding:6, minWidth:210 }}>
+                <button onClick={pegarDesdePortapapeles} style={menuBtn}
+                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Clipboard size={15} style={{ color:c.accent }} />
+                  <span>Pegar captura <span style={{ color:c.textMuted, fontWeight:400 }}>(o Ctrl+V)</span></span>
+                </button>
+                <button onClick={()=>{ setMenuOpen(false); fileRef.current?.click(); }} style={menuBtn}
+                  onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <ImageIcon size={15} style={{ color:c.textMuted }} />
+                  <span>Elegir archivo</span>
+                </button>
+                {menuMsg && <div style={{ fontSize:11, color:c.red, padding:'6px 11px 4px' }}>{menuMsg}</div>}
+              </div>
+            </>
+          )}
+        </>
+      )}
+      {editSrc && <RecortadorPortada src={editSrc} onCancel={()=>setEditSrc(null)} onConfirm={guardar} />}
     </div>
   );
 };
@@ -1060,22 +1549,53 @@ const FotoThumb = ({ fotos, size=96, radius=14, puntaje }) => {
 // SECCION COLAPSABLE
 // ============================================================
 
-const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, children }) => (
-  <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, marginBottom:10, overflow:'hidden', boxShadow:shadow.sm }}>
-    <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
-      <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
-        {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
-        {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
-        <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
-        {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
-        {badge}
-      </div>
-      {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
+const Section = ({ icon:Icon, title, locked, preview, badge, open, onToggle, children }) => {
+  if (!open && !onToggle) return null;
+  return (
+    <div style={{ background:c.surface, border:`1px solid ${c.border}`, borderRadius:14, marginBottom:10, overflow:'hidden', boxShadow:shadow.sm }}>
+      {onToggle && (
+        <div onClick={onToggle} style={{ padding:'16px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', cursor:'pointer', userSelect:'none' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:11, flex:1, minWidth:0 }}>
+            {Icon && <Icon size={17} style={{ color:c.textMuted, flexShrink:0 }} />}
+            {locked && <Lock size={12} style={{ color:c.accent, flexShrink:0 }} />}
+            <span style={{ fontSize:14, fontWeight:600 }}>{title}</span>
+            {preview && !open && <span style={{ fontSize:12, color:c.textSubtle, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</span>}
+            {badge}
+          </div>
+          {open ? <ChevronDown size={15} style={{ color:c.textMuted }} /> : <ChevronRight size={15} style={{ color:c.textMuted }} />}
+        </div>
+      )}
+      {open && <div style={{ padding: onToggle ? '4px 18px 18px' : '16px 18px 18px', borderTop: onToggle ? `1px solid ${c.border}` : 'none' }}><div style={{ paddingTop: onToggle ? 14 : 0 }}>{children}</div></div>}
     </div>
-    {open && <div style={{ padding:'4px 18px 18px', borderTop:`1px solid ${c.border}` }}><div style={{ paddingTop:14 }}>{children}</div></div>}
-  </div>
-);
+  );
+};
 
+
+// ============================================================
+// MINI LINE CHART (SVG puro, sin librerías)
+// ============================================================
+
+const MiniLineChart = ({ data, lineColor, areaColor, dotColors }) => {
+  if (!data || data.length < 2) return null;
+  const W = 400, H = 110, px = 12, py = 14;
+  const vals = data.map(d => d.v);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const spread = maxV - minV || maxV * 0.1 || 1;
+  const xi = i => px + (i / (data.length - 1)) * (W - 2 * px);
+  const yi = v => py + (1 - (v - minV) / spread) * (H - 2 * py);
+  const pts = data.map((d, i) => [xi(i), yi(d.v)]);
+  const linePts = pts.map(p => p.join(',')).join(' ');
+  const areaD = `M${pts[0][0]},${pts[0][1]} ${pts.map(p=>`L${p[0]},${p[1]}`).join(' ')} L${pts[pts.length-1][0]},${H-py} L${pts[0][0]},${H-py}Z`;
+  return (
+    <svg width="100%" height="110" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display:'block', margin:'10px 0' }}>
+      <path d={areaD} fill={areaColor} opacity="0.3" />
+      <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {pts.map(([cx, cy], i) => (
+        <circle key={i} cx={cx} cy={cy} r="5" fill={dotColors?.[i] ?? lineColor} stroke="white" strokeWidth="2" />
+      ))}
+    </svg>
+  );
+};
 
 // ============================================================
 // SEMÁFORO DE DEMANDA
@@ -1139,17 +1659,47 @@ const SemaforoDemanda = ({ prop, update }) => {
         </div>
       )}
 
+      {/* Velocidad de demanda */}
+      {(() => {
+        if (historial.length < 2) return null;
+        const velocidades = historial.slice(1).map((r, i) => {
+          const dias = Math.max(1, (new Date(r.fecha) - new Date(historial[i].fecha)) / (1000*60*60*24));
+          const delta = Math.max(0, r.views - historial[i].views);
+          return { v: parseFloat((delta / dias).toFixed(1)), fecha: r.fecha };
+        });
+        if (velocidades.length === 1) return (
+          <div style={{ marginBottom:14, padding:'10px 14px', background:c.surfaceAlt, borderRadius:10, fontSize:13, color:c.textMuted }}>
+            <span style={{ fontWeight:600, color:c.text }}>{velocidades[0].v.toLocaleString('es-AR')} views/día</span> en el período registrado
+          </div>
+        );
+        return (
+          <MiniLineChart
+            data={velocidades}
+            lineColor={c.accent}
+            areaColor={c.accentSoft}
+          />
+        );
+      })()}
+
       {/* Historial */}
       {historial.length > 0 && (
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:11, fontWeight:600, color:c.textMuted, marginBottom:8 }}>Historial de views</div>
-          {historial.map((r, i) => (
-            <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:`1px solid ${c.border}` }}>
-              <span style={{ fontSize:12, color:c.textMuted, minWidth:90 }}>{r.fecha}</span>
-              <span style={{ fontSize:13, fontWeight:500 }}>{r.views.toLocaleString('es-AR')} views</span>
-              <button onClick={()=>eliminarRegistro(i)} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:2, marginLeft:'auto' }}><X size={13} /></button>
-            </div>
-          ))}
+          {historial.map((r, i) => {
+            const delta = i > 0 ? r.views - historial[i-1].views : null;
+            return (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderBottom:`1px solid ${c.border}` }}>
+                <span style={{ fontSize:12, color:c.textMuted, minWidth:90 }}>{r.fecha}</span>
+                <span style={{ fontSize:13, fontWeight:500 }}>{r.views.toLocaleString('es-AR')} views</span>
+                {delta != null && (
+                  <span style={{ fontSize:11, color: delta > 0 ? c.green : delta < 0 ? c.red : c.textSubtle }}>
+                    {delta > 0 ? '+' : ''}{delta.toLocaleString('es-AR')}
+                  </span>
+                )}
+                <button onClick={()=>eliminarRegistro(i)} style={{ border:'none', background:'transparent', cursor:'pointer', color:c.red, padding:2, marginLeft:'auto' }}><X size={13} /></button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1171,9 +1721,14 @@ const SemaforoDemanda = ({ prop, update }) => {
 // FOTOS — upload, galería y lightbox
 // ============================================================
 
-const MAX_FOTOS = 10;
+const MAX_FOTOS = 20;
 const MAX_W = 1600;
 const QUALITY = 0.85;
+const MAX_VIDEOS = 3;
+const MAX_IMAGENES = 17;
+const MAX_VIDEO_MB = 50;
+const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
+const esVideoUrl = (url) => /\.(mp4|mov|webm|m4v|3gp|quicktime)(\?|$)/i.test(url || '');
 
 const comprimirImagen = (file) => new Promise((resolve, reject) => {
   const img = new Image();
@@ -1208,7 +1763,10 @@ const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
       <button onClick={(e)=>{e.stopPropagation();onPrev();}} style={{ position:'absolute', left:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
         <ChevronDown size={22} style={{ transform:'rotate(90deg)' }} />
       </button>
-      <img onClick={e=>e.stopPropagation()} src={fotos[index]} alt="" style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, objectFit:'contain', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+      {esVideoUrl(fotos[index])
+        ? <video onClick={e=>e.stopPropagation()} src={fotos[index]} controls autoPlay playsInline style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+        : <img onClick={e=>e.stopPropagation()} src={fotos[index]} alt="" style={{ maxWidth:'90vw', maxHeight:'88vh', borderRadius:10, objectFit:'contain', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }} />
+      }
       <button onClick={(e)=>{e.stopPropagation();onNext();}} style={{ position:'absolute', right:16, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:'50%', width:44, height:44, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'white' }}>
         <ChevronDown size={22} style={{ transform:'rotate(-90deg)' }} />
       </button>
@@ -1226,11 +1784,14 @@ const Lightbox = ({ fotos, index, onClose, onPrev, onNext }) => {
 
 const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
   const { uid } = useUser();
+  const isMobile = useIsMobile();
   const fotos = prop.fotos || [];
   const [subiendo, setSubiendo] = useState({});
   const [errores, setErrores] = useState({});
   const [lightboxIdx, setLightboxIdx] = useState(null);
   const fileRef = React.useRef();
+  const camRef = React.useRef();
+  const camVideoRef = React.useRef();
 
   const abrirLightbox = (i) => setLightboxIdx(i);
   const cerrarLightbox = () => setLightboxIdx(null);
@@ -1241,21 +1802,46 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
     const disponibles = MAX_FOTOS - fotos.length;
     const seleccionadas = Array.from(files).slice(0, disponibles);
     if (seleccionadas.length === 0) return;
+    let actuales = [...(prop.fotos || [])];
     for (const file of seleccionadas) {
       const tempId = `${Date.now()}-${Math.random()}`;
+      const esVid = file.type.startsWith('video/');
+      if (esVid && file.size > MAX_VIDEO_BYTES) {
+        setErrores(p => ({ ...p, [tempId]: `El video pesa ${(file.size/1048576).toFixed(0)}MB y el máximo es ${MAX_VIDEO_MB}MB. Grabá uno más corto.` }));
+        continue;
+      }
+      if (esVid && actuales.filter(esVideoUrl).length >= MAX_VIDEOS) {
+        setErrores(p => ({ ...p, [tempId]: `Máximo ${MAX_VIDEOS} videos por propiedad.` }));
+        continue;
+      }
+      if (!esVid && actuales.filter(u => !esVideoUrl(u)).length >= MAX_IMAGENES) {
+        setErrores(p => ({ ...p, [tempId]: `Máximo ${MAX_IMAGENES} fotos por propiedad.` }));
+        continue;
+      }
       setSubiendo(p => ({ ...p, [tempId]: 0 }));
       setErrores(p => { const n = {...p}; delete n[tempId]; return n; });
       try {
-        const blob = await comprimirImagen(file);
-        const storageRef = ref(storage, `properties/${userId}/${propId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g,'_')}`);
-        const task = uploadBytesResumable(storageRef, blob, { contentType: 'image/jpeg' });
+        let blob, contentType, nombre;
+        if (esVid) {
+          blob = file;
+          contentType = file.type || 'video/mp4';
+          const ext = (file.name.split('.').pop() || '').replace(/[^a-zA-Z0-9]/g,'') || 'mp4';
+          nombre = `video-${Date.now()}.${ext}`;
+        } else {
+          blob = await comprimirImagen(file);
+          contentType = 'image/jpeg';
+          nombre = `foto-${Date.now()}.jpg`;
+        }
+        const storageRef = ref(storage, `properties/${userId}/${propId}/${nombre}`);
+        const task = uploadBytesResumable(storageRef, blob, { contentType });
         await new Promise((resolve, reject) => {
           task.on('state_changed',
             snap => setSubiendo(p => ({ ...p, [tempId]: Math.round(snap.bytesTransferred / snap.totalBytes * 100) })),
             err => { setErrores(p => ({ ...p, [tempId]: 'Error al subir' })); reject(err); },
             async () => {
               const url = await getDownloadURL(task.snapshot.ref);
-              update('fotos', [...(prop.fotos || []), url]);
+              actuales = [...actuales, url];
+              update('fotos', actuales);
               setSubiendo(p => { const n = {...p}; delete n[tempId]; return n; });
               trackEvent(uid, 'fotosSubidas');
               resolve();
@@ -1275,11 +1861,6 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
     try { await deleteObject(ref(storage, url)); } catch { /* ignore */ }
   };
 
-  const hacerPrincipal = (i) => {
-    if (i === 0) return;
-    update('fotos', [fotos[i], ...fotos.filter((_,idx) => idx !== i)]);
-  };
-
   const haySubidas = Object.keys(subiendo).length > 0;
   const hayErrores = Object.keys(errores).length > 0;
   const puedeSubir = fotos.length < MAX_FOTOS && !haySubidas;
@@ -1289,26 +1870,24 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
       {fotos.length > 0 && (
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(120px, 1fr))', gap:8, marginBottom:12 }}>
           {fotos.map((url, i) => (
-            <div key={url} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt }}>
-              <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', cursor:'pointer' }} onClick={()=>abrirLightbox(i)} />
-              {i === 0 && (
-                <div style={{ position:'absolute', top:5, left:5, background:c.accent, color:'white', fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:5, pointerEvents:'none' }}>Principal</div>
+            <div key={url} onClick={()=>abrirLightbox(i)} style={{ position:'relative', borderRadius:10, overflow:'hidden', aspectRatio:'4/3', background:c.surfaceAlt, cursor:'pointer' }}>
+              {esVideoUrl(url) ? (
+                <>
+                  <video src={url} muted playsInline preload="metadata" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+                    <div style={{ width:38, height:38, borderRadius:'50%', background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <Play size={18} style={{ color:'white', marginLeft:2 }} fill="white" />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <img src={url} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
               )}
               {isAdmin && (
-                <div className="foto-overlay" style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0)', display:'flex', alignItems:'center', justifyContent:'center', gap:6, opacity:0, transition:'all 150ms' }}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(0,0,0,0.48)';e.currentTarget.style.opacity='1';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='rgba(0,0,0,0)';e.currentTarget.style.opacity='0';}}>
-                  {i !== 0 && (
-                    <button onClick={(e)=>{e.stopPropagation();hacerPrincipal(i);}}
-                      style={{ background:'white', border:'none', borderRadius:6, padding:'4px 8px', fontSize:11, fontWeight:600, cursor:'pointer', color:c.text }}>
-                      Principal
-                    </button>
-                  )}
-                  <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
-                    style={{ background:c.red, border:'none', borderRadius:'50%', width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white' }}>
-                    <X size={14} />
-                  </button>
-                </div>
+                <button onClick={(e)=>{e.stopPropagation();eliminarFoto(i);}}
+                  style={{ position:'absolute', top:5, right:5, background:'rgba(0,0,0,0.55)', border:'none', borderRadius:'50%', width:26, height:26, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'white', padding:0 }}>
+                  <X size={14} />
+                </button>
               )}
             </div>
           ))}
@@ -1330,17 +1909,33 @@ const GaleriaFotos = ({ prop, propId, userId, update, isAdmin }) => {
         <div key={i} style={{ fontSize:12, color:c.red, padding:'6px 10px', background:c.redSoft, borderRadius:7, marginBottom:8 }}>⚠️ {err}</div>
       ))}
       {isAdmin && (
-        <div>
-          <input ref={fileRef} type="file" accept="image/*" multiple style={{ display:'none' }}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display:'none' }}
             onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+            onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          <input ref={camVideoRef} type="file" accept="video/*" capture="environment" style={{ display:'none' }}
+            onChange={e=>{ subirFotos(e.target.files); e.target.value=''; }} />
+          {isMobile && (
+            <button onClick={()=>camRef.current?.click()} disabled={!puedeSubir}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.accent:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?'white':c.textMuted, fontWeight:600 }}>
+              <Camera size={15} /> Tomar foto
+            </button>
+          )}
+          {isMobile && (
+            <button onClick={()=>camVideoRef.current?.click()} disabled={!puedeSubir}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:'transparent', border:`1.5px solid ${puedeSubir?c.accent:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.accent:c.textMuted, fontWeight:600 }}>
+              <Play size={14} fill={puedeSubir?c.accent:c.textMuted} /> Grabar video
+            </button>
+          )}
           <button onClick={()=>fileRef.current?.click()} disabled={!puedeSubir}
             style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 14px', background:puedeSubir?c.surfaceAlt:'transparent', border:`1.5px dashed ${puedeSubir?c.border:'#ccc'}`, borderRadius:10, cursor:puedeSubir?'pointer':'not-allowed', fontSize:13, color:puedeSubir?c.text:c.textMuted, fontWeight:500 }}>
             <Plus size={15} />
-            {fotos.length === 0 ? 'Agregar fotos' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS} fotos` : `Agregar fotos (${fotos.length}/${MAX_FOTOS})`}
+            {fotos.length === 0 ? 'Subir archivo' : fotos.length >= MAX_FOTOS ? `Máximo ${MAX_FOTOS}` : `Subir archivo (${fotos.length}/${MAX_FOTOS})`}
           </button>
-          {fotos.length > 0 && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>Hover para eliminar o hacer principal · Click para ampliar</div>}
         </div>
       )}
+      {isAdmin && <div style={{ fontSize:11, color:c.textMuted, marginTop:6 }}>{fotos.length > 0 ? 'Tocá para ampliar · la ✕ para borrar · ' : ''}Fotos o videos (hasta {MAX_VIDEO_MB}MB c/u)</div>}
       {lightboxIdx !== null && (
         <Lightbox fotos={fotos} index={lightboxIdx} onClose={cerrarLightbox} onPrev={prevFoto} onNext={nextFoto} />
       )}
@@ -1513,7 +2108,7 @@ const MapaDistancias = ({ prop, lugaresRef, update, isAdmin }) => {
     });
 
     // InfoWindow de la propiedad con foto
-    const fotoPrincipal = prop.fotos?.[0];
+    const fotoPrincipal = prop.portada;
     const iwContent = `
       <div style="max-width:200px;font-family:sans-serif">
         ${fotoPrincipal ? `<img src="${fotoPrincipal}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px" />` : ''}
@@ -1695,6 +2290,12 @@ const HistorialPrecio = ({ prop, update }) => {
     if (diff < 0) bajada = { diff: Math.abs(diff), pct: Math.abs(pct) };
   }
 
+  // Colores de puntos según dirección del precio
+  const dotColors = historial.map((r, i) => {
+    if (i === 0) return c.textMuted;
+    return r.precio < historial[i-1].precio ? c.green : r.precio > historial[i-1].precio ? c.red : c.textMuted;
+  });
+
   return (
     <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
       <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Historial de precio</div>
@@ -1703,6 +2304,16 @@ const HistorialPrecio = ({ prop, update }) => {
         <div style={{ marginBottom:12, padding:'10px 14px', background:c.greenSoft, borderRadius:10, fontSize:13, color:c.green, fontWeight:500 }}>
           📉 Bajó {fmtUSD(bajada.diff)} ({bajada.pct}%) desde la publicación
         </div>
+      )}
+
+      {/* Gráfico */}
+      {historial.length >= 2 && (
+        <MiniLineChart
+          data={historial.map(r => ({ v: r.precio }))}
+          lineColor={c.textMuted}
+          areaColor={c.borderStrong}
+          dotColors={dotColors}
+        />
       )}
 
       {historial.length > 0 && (
@@ -1740,8 +2351,27 @@ const HistorialPrecio = ({ prop, update }) => {
 // ============================================================
 
 const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, onBack, onDelete }) => {
-  const [sec, setSec] = useState({ ident:true, fotos:true, fisicos:false, financieros:true, excluyentes:false, puntajes:true, comodidades:false, caracteristicas:false, aviso:false, mapa:true, proceso:false, negociacion:false, visita:false, notas:false });
-  const toggle = k => setSec(s => ({ ...s, [k]: !s[k] }));
+  const DETALLE_TABS = [
+    { id:'ident',      label:'Identificación',    icon:Info },
+    { id:'inmueble',   label:'El inmueble',        icon:Ruler },
+    { id:'mapa',       label:'Mapa',               icon:Map },
+    { id:'financiero', label:'Financiero',         icon:Wallet },
+    { id:'mercado',    label:'Mercado',            icon:Clock },
+    ...(isAdmin ? [{ id:'evaluacion', label:'Evaluación', icon:Star }] : []),
+    { id:'visita',     label:'La visita',          icon:Camera },
+    { id:'seguimiento',label:'Seguimiento',        icon:ListChecks },
+  ];
+  const [secActiva, setSecActiva] = useState('ident');
+  const isMobile = useIsMobile();
+  const [aiFilled, setAiFilled] = useState([]);
+  const [showCargaRapida, setShowCargaRapida] = useState(false);
+  const [textoAviso, setTextoAviso] = useState('');
+  const [cargandoIA, setCargandoIA] = useState(false);
+  const [errorIA, setErrorIA] = useState(null);
+  const [toastMsg, setToastMsg] = useState(null);
+  // compatibilidad: sec.X === true solo para la sección activa
+  const sec = Object.fromEntries(DETALLE_TABS.map(t => [t.id, secActiva !== null && t.id === secActiva]));
+  const toggle = k => setSecActiva(k);
   const update = (path, value) => {
     setProp(prev => {
       const keys = path.split('.');
@@ -1755,6 +2385,59 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
   const puntaje = calcularPuntaje(prop.puntajes, criterios);
   const analisis = calcularAnalisis(prop, presupuesto, config);
+
+  const aplicarCargaRapida = (json) => {
+    const filled = [];
+    ['nombre','direccion','zona','tipo','subtipo','disposicion','orientacion',
+     'ambientes','dormitorios','banos','m2Cubiertos','m2Descubiertos',
+     'antiguedad','piso','cochera','precioPedido','expensas','anunciante','inmobiliaria'
+    ].forEach(k => { if (json[k] !== undefined) { update(k, json[k]); filled.push(k); } });
+    if (json.zona && PRECIOS_BARRIO_USADO[json.zona]) update('promedioBarrio', PRECIOS_BARRIO_USADO[json.zona]);
+    if (json.diasPublicado) {
+      const d = new Date(); d.setDate(d.getDate() - json.diasPublicado);
+      update('fechaPublicacion', d.toISOString().split('T')[0]); filled.push('fechaPublicacion');
+    }
+    ['terraza','ascensor','gasNatural'].forEach(k => {
+      if (json.excluyentes?.[k]) { update(`excluyentes.${k}`, true); filled.push(`excluyentes.${k}`); }
+    });
+    ['balcon','terraza','patio','jardin','pileta','quincho','solarium','lavadero',
+     'parrilla','baulera','vestidor','dependencia','toilette','banoSuite','sum',
+     'gimnasio','ascensor','laundry'].forEach(k => {
+      if (json.comodidades?.[k]) { update(`comodidades.${k}`, true); filled.push(`comodidades.${k}`); }
+    });
+    // Geocodificar dirección automáticamente para activar el mapa
+    if (json.direccion && window.google?.maps?.Geocoder) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address: json.direccion + ', Buenos Aires, Argentina' }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          update('lat', loc.lat());
+          update('lng', loc.lng());
+          update('distanciasHash', '');
+        }
+      });
+    }
+    setAiFilled(filled);
+    const badges = filled.filter(k => k.includes('.')).length;
+    setToastMsg(`✨ Valora completó ${filled.length} campos${badges > 0 ? ` · Revisá los ${badges} marcados con ✨` : ''}.`);
+    setTimeout(() => setToastMsg(null), 5000);
+  };
+
+  const lanzarCargaRapida = async () => {
+    if (!textoAviso.trim()) return;
+    setCargandoIA(true); setErrorIA(null);
+    try {
+      const fn = httpsCallable(functions, 'parsearAviso');
+      const result = await fn({ texto: textoAviso });
+      aplicarCargaRapida(result.data);
+      setShowCargaRapida(false);
+      setTextoAviso('');
+    } catch (e) {
+      setErrorIA(e?.message ? `Error: ${e.message}` : 'No se pudo procesar el aviso. Intentá de nuevo.');
+    } finally {
+      setCargandoIA(false);
+    }
+  };
   const colAna = colorAnalisis(analisis.estado);
   const m2pond = (prop.m2Cubiertos||0) + (prop.m2Descubiertos||0)*0.5;
   const usdM2 = m2pond>0 && prop.precioPedido ? prop.precioPedido/m2pond : null;
@@ -1766,27 +2449,27 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
 
 
   return (
-    <div style={{ maxWidth:880, margin:'0 auto', padding:'24px 24px 64px' }}>
+    <div style={{ maxWidth:880, margin:'0 auto', padding:isMobile?'16px 14px 88px':'24px 24px 64px' }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
-        <Button variant="ghost" onClick={onBack}><ArrowLeft size={15} /> Volver</Button>
+        <Button variant="ghost" onClick={onBack} style={{ minHeight:isMobile?44:undefined }}><ArrowLeft size={15} /> Volver</Button>
         {isAdmin && (
           <div style={{ display:'flex', gap:8 }}>
-            <Button variant="secondary" size="sm" onClick={()=>update('favorita', !prop.favorita)}>
+            <Button variant="secondary" size="sm" onClick={()=>update('favorita', !prop.favorita)} style={{ minHeight:isMobile?44:undefined }}>
               <Heart size={13} fill={prop.favorita?c.accent:'none'} color={prop.favorita?c.accent:c.text} />
               {prop.favorita ? 'Favorita' : 'Marcar favorita'}
             </Button>
             {prop.estado !== 'Descartada'
-              ? <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Descartada'); onBack(); }}><X size={13} /> Descartar</Button>
-              : <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Para visitar'); onBack(); }}>Recuperar</Button>
+              ? <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Descartada'); onBack(); }} style={{ minHeight:isMobile?44:undefined }}><X size={13} /> Descartar</Button>
+              : <Button variant="secondary" size="sm" onClick={()=>{ update('estado','Para visitar'); onBack(); }} style={{ minHeight:isMobile?44:undefined }}>Recuperar</Button>
             }
-            <Button variant="danger" size="sm" onClick={onDelete}><Trash2 size={13} /></Button>
+            <Button variant="danger" size="sm" onClick={onDelete} style={{ minHeight:isMobile?44:undefined }}><Trash2 size={13} /></Button>
           </div>
         )}
       </div>
 
       <Card style={{ marginBottom:14, padding:22 }}>
         <div style={{ display:'flex', gap:18, alignItems:'flex-start' }}>
-          <FotoThumb fotos={prop.fotos} size={96} radius={14} puntaje={puntaje} />
+          <PortadaThumb prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} size={96} radius={14} puntaje={puntaje} />
           <div style={{ flex:1, minWidth:0 }}>
             <TextInput defaultValue={prop.nombre} onCommit={v=>update('nombre',v)} placeholder="Nombre de la propiedad"
               style={{ fontSize:22, fontWeight:700, border:'none', padding:'0 0 5px', letterSpacing:'-0.01em' }} />
@@ -1828,8 +2511,26 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </div>
 
-      {/* IDENTIFICACIÓN */}
-      <Section icon={Info} title="Identificación" open={sec.ident} onToggle={()=>toggle('ident')}>
+      {/* TABS DE NAVEGACIÓN */}
+      <div style={{ display:'flex', gap:4, overflowX:'auto', marginBottom:12, scrollbarWidth:'none', WebkitOverflowScrolling:'touch', padding:'2px 0' }}>
+        {DETALLE_TABS.map(t => {
+          const IconTab = t.icon;
+          const activo = secActiva === t.id;
+          return (
+            <button key={t.id} onClick={() => setSecActiva(activo ? null : t.id)}
+              style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 11px', border:`1px solid ${activo ? c.accent : c.border}`, borderRadius:20, whiteSpace:'nowrap', flexShrink:0, cursor:'pointer', fontFamily:FONT, fontSize:12, fontWeight: activo ? 600 : 400,
+                background: activo ? c.accentSoft : c.surface,
+                color: activo ? c.accent : c.textMuted,
+                transition:'all 150ms' }}>
+              <IconTab size={12} />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 1. IDENTIFICACIÓN */}
+      <Section icon={Info} title="Identificación" open={sec.ident} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))', gap:12 }}>
           <Field label="Dirección">
             <DireccionAutocomplete
@@ -1839,66 +2540,53 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
                 update('direccion', direccion);
                 update('lat', lat);
                 update('lng', lng);
-                // resetear distancias para que se recalculen
                 update('distanciasHash', '');
               }}
             />
           </Field>
-          <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>update('zona',v)} options={ZONAS} /></Field>
+          <Field label="Zona / Barrio"><Select value={prop.zona} onChange={v=>{
+            const precioNuevo = PRECIOS_BARRIO_USADO[v];
+            const precioAnterior = PRECIOS_BARRIO_USADO[prop.zona];
+            update('zona', v);
+            if (precioNuevo && (!prop.promedioBarrio || Number(prop.promedioBarrio) === precioAnterior)) {
+              update('promedioBarrio', precioNuevo);
+            }
+          }} options={ZONAS} /></Field>
           <Field label="Tipo de propiedad"><Select value={prop.tipo} onChange={v=>update('tipo',v)} options={TIPOS} /></Field>
           <Field label="Subtipo"><Select value={prop.subtipo} onChange={v=>update('subtipo',v)} options={SUBTIPOS} /></Field>
           <Field label="Disposición"><Select value={prop.disposicion} onChange={v=>update('disposicion',v)} options={DISPOSICIONES} /></Field>
           <Field label="Tipo de anunciante"><Select value={prop.anunciante} onChange={v=>update('anunciante',v)} options={ANUNCIANTES} /></Field>
-          <Field label="Link al aviso"><TextInput defaultValue={prop.linkAviso} onCommit={v=>update('linkAviso',v)} placeholder="https://..." /></Field>
+          <Field label="Link al aviso">
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <div style={{ flex:1 }}><TextInput defaultValue={prop.linkAviso} onCommit={v=>update('linkAviso',v)} placeholder="https://..." /></div>
+              {prop.linkAviso && (
+                <a href={prop.linkAviso} target="_blank" rel="noopener noreferrer"
+                  style={{ display:'flex', alignItems:'center', justifyContent:'center', width:40, height:40, background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:10, color:c.textMuted, flexShrink:0, textDecoration:'none' }}>
+                  <ExternalLink size={15} />
+                </a>
+              )}
+            </div>
+          </Field>
           <Field label="Inmobiliaria"><TextInput defaultValue={prop.inmobiliaria} onCommit={v=>update('inmobiliaria',v)} /></Field>
           <Field label="Agente"><TextInput defaultValue={prop.agente} onCommit={v=>update('agente',v)} placeholder="Nombre" /></Field>
           <Field label="Teléfono del agente"><TextInput defaultValue={prop.telefonoAgente} onCommit={v=>update('telefonoAgente',v)} placeholder="+54 11 ..." /></Field>
         </div>
-      </Section>
-
-      {/* FOTOS */}
-      <Section icon={ImageIcon} title="Fotos" badge={prop.fotos?.length > 0 ? <Badge bg={c.surfaceAlt} color={c.textMuted}>{prop.fotos.length}/{MAX_FOTOS}</Badge> : null} open={sec.fotos} onToggle={()=>toggle('fotos')}>
-        <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
-      </Section>
-
-      {/* COMODIDADES */}
-      <Section icon={Star} title="Comodidades" open={sec.comodidades} onToggle={()=>toggle('comodidades')}>
-        <div style={{ marginBottom:14 }}>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>De la propiedad</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            {[
-              {id:'balcon',label:'Balcón'},{id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},
-              {id:'jardin',label:'Jardín'},{id:'pileta',label:'Pileta'},{id:'quincho',label:'Quincho'},
-              {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
-              {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
-              {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
+        {isAdmin && (
+          <div style={{ marginTop:14, paddingTop:14, borderTop:`1px solid ${c.border}`, display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+            <button onClick={()=>setShowCargaRapida(true)}
+              style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, boxShadow:'0 2px 8px rgba(232,69,74,0.3)' }}>
+              ✨ Carga Rápida con IA
+            </button>
+            <div style={{ fontSize:11, color:c.textMuted, lineHeight:1.5 }}>
+              Pegá el texto del aviso y Valora completa los campos automáticamente.<br />
+              <span style={{ color:c.textSubtle }}>Powered by Claude AI</span>
+            </div>
           </div>
-        </div>
-        <div>
-          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-            {[
-              {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
-              {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
-            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} />)}
-          </div>
-        </div>
+        )}
       </Section>
 
-      {/* CARACTERÍSTICAS */}
-      <Section icon={ListChecks} title="Características" open={sec.caracteristicas} onToggle={()=>toggle('caracteristicas')}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          {[
-            {id:'aptoCredito',label:'Apto crédito'},{id:'aptoProfesional',label:'Apto profesional'},
-            {id:'permiteMascotas',label:'Permite mascotas'},{id:'luminoso',label:'Luminoso'},
-            {id:'ofreceFinanciacion',label:'Ofrece financiación'},{id:'accesoMovilidad',label:'Acceso movilidad reducida'},
-          ].map(item => <Toggle key={item.id} checked={prop.caracteristicas?.[item.id]===true} onChange={v=>update(`caracteristicas.${item.id}`,v)} label={item.label} />)}
-        </div>
-      </Section>
-
-      {/* DATOS FÍSICOS */}
-      <Section icon={Ruler} title="Datos físicos" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.fisicos} onToggle={()=>toggle('fisicos')}>
+      {/* 2. EL INMUEBLE */}
+      <Section icon={Ruler} title="El inmueble" preview={m2pond>0?`${fmtNum(m2pond,0)}m² · ${prop.ambientes||'?'} amb · ${prop.banos||'?'} baños`:null} open={sec.inmueble} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:11 }}>
           <Field label="m² cubiertos"><TextInput type="number" defaultValue={prop.m2Cubiertos} onCommit={v=>update('m2Cubiertos',v)} /></Field>
           <Field label="m² descubiertos"><TextInput type="number" defaultValue={prop.m2Descubiertos} onCommit={v=>update('m2Descubiertos',v)} /></Field>
@@ -1913,17 +2601,89 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           <Field label="Calefacción"><Select value={prop.calefaccion} onChange={v=>update('calefaccion',v)} options={CALEFACCIONES} /></Field>
           <Field label="Empresa de luz"><Select value={prop.empresaLuz} onChange={v=>update('empresaLuz',v)} options={EMPRESAS_LUZ} /></Field>
         </div>
-        <div style={{ marginTop:12 }}>
+        <div style={{ marginTop:12, marginBottom:18 }}>
           <Field label="Notas de estado"><TextArea defaultValue={prop.notasEstado} onCommit={v=>update('notasEstado',v)} placeholder="Humedad, techo, terminaciones..." /></Field>
         </div>
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Comodidades de la propiedad</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'balcon',label:'Balcón'},{id:'terraza',label:'Terraza'},{id:'patio',label:'Patio'},
+              {id:'jardin',label:'Jardín'},{id:'pileta',label:'Pileta'},{id:'quincho',label:'Quincho'},
+              {id:'solarium',label:'Solarium'},{id:'lavadero',label:'Lavadero'},{id:'toilette',label:'Toilette'},
+              {id:'banoSuite',label:'Baño en suite'},{id:'vestidor',label:'Vestidor'},
+              {id:'dependencia',label:'Dep. de servicio'},{id:'baulera',label:'Baulera'},{id:'parrilla',label:'Parrilla'},
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} aiBadge={aiFilled.includes(`comodidades.${item.id}`)} />)}
+          </div>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, paddingTop:10, borderTop:`1px solid ${c.border}` }}>Del edificio</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'sum',label:'SUM'},{id:'gimnasio',label:'Gimnasio'},{id:'ascensor',label:'Ascensor'},
+              {id:'encargado',label:'Encargado'},{id:'vigilancia',label:'Vigilancia'},{id:'laundry',label:'Laundry'},
+            ].map(item => <Toggle key={item.id} checked={prop.comodidades?.[item.id]===true} onChange={v=>update(`comodidades.${item.id}`,v)} label={item.label} aiBadge={aiFilled.includes(`comodidades.${item.id}`)} />)}
+          </div>
+        </div>
+        <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16, marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Características</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[
+              {id:'aptoCredito',label:'Apto crédito'},{id:'aptoProfesional',label:'Apto profesional'},
+              {id:'permiteMascotas',label:'Permite mascotas'},{id:'luminoso',label:'Luminoso'},
+              {id:'ofreceFinanciacion',label:'Ofrece financiación'},{id:'accesoMovilidad',label:'Acceso movilidad reducida'},
+            ].map(item => <Toggle key={item.id} checked={prop.caracteristicas?.[item.id]===true} onChange={v=>update(`caracteristicas.${item.id}`,v)} label={item.label} />)}
+          </div>
+        </div>
+        {(() => {
+          const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
+          const totalExcl = excluyentesActivos.length + (cocheraActiva ? 1 : 0);
+          const cocheraCumple = cocheraActiva ? prop.cochera === true : true;
+          const cumpleTotal = exCumple === excluyentesActivos.length && cocheraCumple;
+          const cumpleCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
+          return (
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:16 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:c.textMuted }}>Excluyentes</div>
+                <Badge bg={cumpleTotal?c.greenSoft:c.amberSoft} color={cumpleTotal?c.green:c.amber}>Cumple {cumpleCount}/{totalExcl}</Badge>
+              </div>
+              {totalExcl === 0
+                ? <div style={{ fontSize:13, color:c.textMuted }}>No hay excluyentes configurados. Definílos en Configuración.</div>
+                : (
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
+                    {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} aiBadge={aiFilled.includes(`excluyentes.${e.id}`)} />)}
+                    {cocheraActiva && (
+                      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
+                        <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
+                          <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:prop.cochera?18:2, boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                        </div>
+                        <span style={{ fontSize:14, color:c.textMuted }}>Cochera <span style={{ fontSize:11, color:c.textSubtle }}>(desde Datos físicos)</span></span>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+            </div>
+          );
+        })()}
       </Section>
 
-      {/* DATOS FINANCIEROS */}
-      <Section icon={Wallet} title="Datos financieros" open={sec.financieros} onToggle={()=>toggle('financieros')}>
+      {/* 3. MAPA Y DISTANCIAS */}
+      <Section icon={Map} title="Mapa y Distancias" open={sec.mapa} >
+        <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
+      </Section>
+
+      {/* 4. ANÁLISIS FINANCIERO */}
+      <Section icon={Wallet} title="Análisis Financiero" open={sec.financiero} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Precio pedido (USD)"><TextInput type="number" defaultValue={prop.precioPedido} onCommit={v=>update('precioPedido',v)} /></Field>
           <Field label="Expensas (ARS)"><TextInput type="number" defaultValue={prop.expensas} onCommit={v=>update('expensas',v)} /></Field>
-          <Field label="Promedio del barrio (USD/m²)"><TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} /></Field>
+          <Field label="Promedio del barrio (USD/m²)" hint={PRECIOS_BARRIO_USADO[prop.zona] ? 'Índice Zonaprop · may. 2026' : undefined}>
+            {PRECIOS_BARRIO_USADO[prop.zona]
+              ? <div style={{ fontSize:15, fontWeight:600, padding:'9px 12px', background:c.surfaceAlt, borderRadius:8, border:`1px solid ${c.border}`, color:c.text }}>
+                  USD {PRECIOS_BARRIO_USADO[prop.zona].toLocaleString('es-AR')}
+                </div>
+              : <TextInput type="number" defaultValue={prop.promedioBarrio} onCommit={v=>update('promedioBarrio',v)} />
+            }
+          </Field>
         </div>
         {isAdmin && (
           <>
@@ -1981,46 +2741,8 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         )}
       </Section>
 
-      {/* EXCLUYENTES */}
-      {(() => {
-        // Cochera se lee de Datos físicos, no es toggle manual
-        const cocheraActiva = (config?.excluyentesActivos || EXCLUYENTES_DEFAULT).includes('cochera');
-        const totalExcl = excluyentesActivos.length + (cocheraActiva ? 1 : 0);
-        const cocheraCumple = cocheraActiva ? prop.cochera === true : true;
-        const cumpleTotal = exCumple === excluyentesActivos.length && cocheraCumple;
-        const cumpleCount = exCumple + (cocheraActiva && cocheraCumple ? 1 : 0);
-        return (
-          <Section icon={ListChecks} title="Excluyentes" badge={<Badge bg={cumpleTotal?c.greenSoft:c.amberSoft} color={cumpleTotal?c.green:c.amber}>Cumple {cumpleCount}/{totalExcl}</Badge>} open={sec.excluyentes} onToggle={()=>toggle('excluyentes')}>
-            {totalExcl === 0 ? (
-              <div style={{ fontSize:13, color:c.textMuted, padding:'8px 0' }}>No hay excluyentes configurados. Definílos en Configuración.</div>
-            ) : (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                {excluyentesActivos.filter(e => e.id !== 'cochera').map(e => <Toggle key={e.id} checked={prop.excluyentes?.[e.id]===true} onChange={v=>update(`excluyentes.${e.id}`,v)} label={e.label} />)}
-                {cocheraActiva && (
-                  <div style={{ display:'flex', alignItems:'center', gap:12, padding:'6px 0' }}>
-                    <div style={{ width:38, height:22, borderRadius:11, background:prop.cochera?c.accent:'#D5D1C7', position:'relative', flexShrink:0, opacity:0.7 }}>
-                      <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:2, left:prop.cochera?18:2, boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
-                    </div>
-                    <span style={{ fontSize:14, color:c.textMuted }}>Cochera <span style={{ fontSize:11, color:c.textSubtle }}>(desde Datos físicos)</span></span>
-                  </div>
-                )}
-              </div>
-            )}
-          </Section>
-        );
-      })()}
-
-      {/* PUNTAJES */}
-      {isAdmin && (
-        <Section icon={Star} title="Puntajes por criterio" locked preview={`${criterios.length} criterios`} open={sec.puntajes} onToggle={()=>toggle('puntajes')}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
-            {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
-          </div>
-        </Section>
-      )}
-
-      {/* DATOS DEL AVISO */}
-      <Section icon={Info} title="Datos del aviso" open={sec.aviso} onToggle={()=>toggle('aviso')}>
+      {/* 5. EN EL MERCADO */}
+      <Section icon={Clock} title="En el Mercado" open={sec.mercado} >
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:11, marginBottom:14 }}>
           <Field label="Fecha de publicación"><TextInput type="date" defaultValue={prop.fechaPublicacion} onCommit={v=>update('fechaPublicacion',v)} /></Field>
           <Field label="Views actuales"><TextInput type="number" defaultValue={prop.views} onCommit={v=>update('views',v)} /></Field>
@@ -2031,32 +2753,20 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <HistorialPrecio prop={prop} update={update} />
       </Section>
 
-      {/* MAPA Y DISTANCIAS */}
-      <Section icon={Map} title="Mapa y distancias" open={sec.mapa} onToggle={()=>toggle('mapa')}>
-        <MapaDistancias prop={prop} lugaresRef={config?.lugaresReferencia || []} update={update} isAdmin={isAdmin} />
-      </Section>
-
-      {/* PROCESO */}
-      <Section icon={Info} title="Proceso y seguimiento" open={sec.proceso} onToggle={()=>toggle('proceso')}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11 }}>
-          <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
-          <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
-        </div>
-        {isAdmin && <Field label="Flexibilidad escrituración" locked><TextArea defaultValue={prop.flexEscrituracion} onCommit={v=>update('flexEscrituracion',v)} rows={2} /></Field>}
-      </Section>
-
-      {/* NEGOCIACIÓN */}
+      {/* 6. EVALUACIÓN VALORA */}
       {isAdmin && (
-        <Section icon={Lock} title="Negociación" locked open={sec.negociacion} onToggle={()=>toggle('negociacion')}>
-          <Field label="Motivo de venta" locked><TextInput defaultValue={prop.motivoVenta} onCommit={v=>update('motivoVenta',v)} placeholder="Sucesión, divorcio, mudanza..." /></Field>
-          <Field label="¿El vendedor tiene apuro?" locked><Toggle checked={prop.duenoApurado} onChange={v=>update('duenoApurado',v)} label={prop.duenoApurado?'Sí':'No'} /></Field>
-          <Field label="¿Hubo otras ofertas?" locked><TextInput defaultValue={prop.otrasOfertas} onCommit={v=>update('otrasOfertas',v)} /></Field>
-          <Field label="Notas de negociación" locked><TextArea defaultValue={prop.notasNegociacion} onCommit={v=>update('notasNegociacion',v)} rows={4} /></Field>
+        <Section icon={Star} title="Evaluación Valora" locked preview={`${criterios.length} criterios`} open={sec.evaluacion} >
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(260px, 1fr))', gap:'0 26px' }}>
+            {criterios.map(cr => <Slider key={cr.id} label={cr.label} weight={cr.peso} value={prop.puntajes?.[cr.id]} onChange={v=>update(`puntajes.${cr.id}`,v)} />)}
+          </div>
         </Section>
       )}
 
       {/* LA VISITA */}
-      <Section icon={MapPin} title="La visita" open={sec.visita} onToggle={()=>toggle('visita')}>
+      <Section icon={Camera} title="La visita" open={sec.visita} >
+        <div style={{ marginBottom:16 }}>
+          <GaleriaFotos prop={prop} propId={prop.id} userId={userId} update={update} isAdmin={isAdmin} />
+        </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:11, marginBottom:11 }}>
           <Field label="Fecha de la visita"><TextInput type="date" defaultValue={prop.visita?.fecha} onCommit={v=>update('visita.fecha',v)} /></Field>
           <Field label="¿Quién visitó?"><TextInput defaultValue={prop.visita?.quienVisito} onCommit={v=>update('visita.quienVisito',v)} placeholder="Ej: los dos, solo yo..." /></Field>
@@ -2073,12 +2783,69 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
         <Field label="Transporte más cercano"><TextInput defaultValue={prop.transporte} onCommit={v=>update('transporte',v)} placeholder="Subte, tren, colectivos..." /></Field>
       </Section>
 
-      {/* NOTAS PRIVADAS */}
-      {isAdmin && (
-        <Section icon={Lock} title="Notas privadas" locked open={sec.notas} onToggle={()=>toggle('notas')}>
-          <Field label="Notas privadas (solo admins)" locked><TextArea defaultValue={prop.notasPrivadas} onCommit={v=>update('notasPrivadas',v)} rows={5} /></Field>
-        </Section>
+      {/* 7. SEGUIMIENTO */}
+      <Section icon={ListChecks} title="Seguimiento" open={sec.seguimiento} >
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:11, marginBottom:11 }}>
+          <Field label="Estado"><Select value={prop.estado} onChange={v=>update('estado',v)} options={ESTADOS} /></Field>
+          <Field label="Próxima acción"><TextInput defaultValue={prop.proximaAccion} onCommit={v=>update('proximaAccion',v)} /></Field>
+        </div>
+        {isAdmin && <Field label="Flexibilidad escrituración" locked><TextArea defaultValue={prop.flexEscrituracion} onCommit={v=>update('flexEscrituracion',v)} rows={2} /></Field>}
+        {isAdmin && (
+          <>
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:14, marginTop:14 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:11 }}>
+                <Lock size={12} style={{ color:c.accent }} />
+                <span style={{ fontSize:12, fontWeight:600, color:c.accent }}>Negociación</span>
+              </div>
+              <Field label="Motivo de venta" locked><TextInput defaultValue={prop.motivoVenta} onCommit={v=>update('motivoVenta',v)} placeholder="Sucesión, divorcio, mudanza..." /></Field>
+              <Field label="¿El vendedor tiene apuro?" locked><Toggle checked={prop.duenoApurado} onChange={v=>update('duenoApurado',v)} label={prop.duenoApurado?'Sí':'No'} /></Field>
+              <Field label="¿Hubo otras ofertas?" locked><TextInput defaultValue={prop.otrasOfertas} onCommit={v=>update('otrasOfertas',v)} /></Field>
+              <Field label="Notas de negociación" locked><TextArea defaultValue={prop.notasNegociacion} onCommit={v=>update('notasNegociacion',v)} rows={4} /></Field>
+            </div>
+            <div style={{ borderTop:`1px solid ${c.border}`, paddingTop:14, marginTop:14 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:11 }}>
+                <Lock size={12} style={{ color:c.accent }} />
+                <span style={{ fontSize:12, fontWeight:600, color:c.accent }}>Notas privadas</span>
+              </div>
+              <Field label="" locked><TextArea defaultValue={prop.notasPrivadas} onCommit={v=>update('notasPrivadas',v)} rows={5} /></Field>
+            </div>
+          </>
+        )}
+      </Section>
+
+      {/* MODAL CARGA RÁPIDA */}
+      {showCargaRapida && (
+        <>
+          <div onClick={()=>setShowCargaRapida(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:100 }} />
+          <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', background:c.surface, borderRadius:16, padding:24, zIndex:101, width:'min(560px, 92vw)', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+              <div>
+                <div style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>✨ Carga Rápida con IA</div>
+                <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>
+                  Copiá todo el texto del aviso de Zonaprop, Argenprop o MercadoLibre y pegalo acá.<br />
+                  <span style={{ color:c.textSubtle }}>Powered by Claude AI (Haiku 4.5)</span>
+                </div>
+              </div>
+              <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, padding:4, display:'flex', flexShrink:0 }}><X size={18} /></button>
+            </div>
+            <textarea
+              value={textoAviso}
+              onChange={e=>setTextoAviso(e.target.value)}
+              placeholder="Pegá acá todo el texto del aviso..."
+              style={{ width:'100%', height:200, padding:12, borderRadius:10, border:`1px solid ${c.border}`, fontFamily:FONT, fontSize:13, resize:'vertical', background:c.surfaceAlt, color:c.text, outline:'none', boxSizing:'border-box', lineHeight:1.6 }}
+            />
+            {errorIA && <div style={{ color:c.red, fontSize:12, marginTop:8, display:'flex', alignItems:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
+            <div style={{ display:'flex', gap:10, marginTop:14, justifyContent:'flex-end', alignItems:'center' }}>
+              <Button variant="secondary" onClick={()=>setShowCargaRapida(false)}>Cancelar</Button>
+              <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:`linear-gradient(135deg, ${c.accent}, #c73037)`, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
+                {cargandoIA ? '⏳ Analizando...' : '✨ Completar campos'}
+              </button>
+            </div>
+          </div>
+        </>
       )}
+      <Toast msg={toastMsg} />
     </div>
   );
 };
@@ -2100,6 +2867,8 @@ const semaforoVsBarrio = (usdM2Prop, promedioBarrio) => {
 };
 
 const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin, onClose, onSelectProp }) => {
+  const isMobile = useIsMobile();
+  const [activeCol, setActiveCol] = useState(0);
   // Pre-computar datos por propiedad
   const datos = propiedades.map(p => {
     const m2pond = (p.m2Cubiertos||0) + (p.m2Descubiertos||0)*0.5;
@@ -2125,7 +2894,17 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
         bajadas = { count: histPrecio.length - 1, diff: Math.abs(diff), pct };
       }
     }
-    return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio };
+    // Días en mercado
+    const diasMercado = p.fechaPublicacion
+      ? Math.floor((new Date() - new Date(p.fechaPublicacion)) / (1000*60*60*24))
+      : null;
+    // Views/día (promedio global)
+    const histViews = p.aviso?.historialViews || [];
+    const viewsXDia = histViews.length >= 2
+      ? (histViews[histViews.length-1].views - histViews[0].views) /
+        Math.max(1, (new Date(histViews[histViews.length-1].fecha) - new Date(histViews[0].fecha)) / (1000*60*60*24))
+      : null;
+    return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio, diasMercado, viewsXDia };
   });
 
   // Helpers para resaltar ganadores
@@ -2169,22 +2948,24 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
     costoTotal:   winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.costoTotal : null), 'min'),
     vsPresup:     winnerIdx(datos.map(d => d.analisis.estado!=='sin-datos' ? d.analisis.resultado : null), 'max'),
     vsBarrio:     winnerVsBarrio,
+    diasMercado:  winnerIdx(datos.map(d => d.diasMercado), 'min'),
+    viewsXDia:    winnerIdx(datos.map(d => d.viewsXDia), 'min'),
   };
 
   const winnerStyle = (isWinner) => isWinner
-    ? { background:c.greenSoft, borderRadius:6, padding:'3px 7px', display:'inline-block', fontWeight:600 }
+    ? { background:c.greenSoft, borderRadius:6, padding:'3px 8px 3px 6px', display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, borderLeft:`3px solid ${c.green}` }
     : {};
 
   const Row = ({ label, children, sticky }) => (
     <tr style={sticky ? { background:c.surfaceAlt } : {}}>
       <td style={{ padding:'11px 14px', fontSize:12, color:c.textMuted, fontWeight:500, borderBottom:`1px solid ${c.border}`, position:'sticky', left:0, background:c.surface, zIndex:1, minWidth:160 }}>{label}</td>
-      {children}
+      {isMobile ? React.Children.toArray(children)[activeCol] : children}
     </tr>
   );
 
   const SectionHeader = ({ title, colspan }) => (
     <tr>
-      <td colSpan={colspan} style={{ padding:'14px 14px 8px', fontSize:11, fontWeight:600, color:c.textSubtle, textTransform:'uppercase', letterSpacing:0.6, background:c.surface, position:'sticky', left:0 }}>{title}</td>
+      <td colSpan={isMobile ? 2 : colspan} style={{ padding:'14px 14px 8px', fontSize:11, fontWeight:600, color:c.textSubtle, textTransform:'uppercase', letterSpacing:0.6, background:c.surface, position:'sticky', left:0 }}>{title}</td>
     </tr>
   );
 
@@ -2201,9 +2982,24 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
             <div style={{ fontSize:17, fontWeight:700 }}>Comparador</div>
             <div style={{ fontSize:12, color:c.textMuted, marginTop:2 }}>{datos.length} propiedades · La mejor de cada fila se resalta en verde</div>
           </div>
-          <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', padding:8, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:c.textMuted }} onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-            <X size={20} />
-          </button>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {isMobile && datos.length > 1 && (
+              <div style={{ display:'flex', alignItems:'center', gap:6, background:c.surfaceAlt, borderRadius:10, padding:'4px 8px' }}>
+                <button onClick={()=>setActiveCol(c=>Math.max(0,c-1))} disabled={activeCol===0}
+                  style={{ background:'transparent', border:'none', cursor:activeCol===0?'not-allowed':'pointer', color:activeCol===0?c.textSubtle:c.text, display:'flex', padding:2, opacity:activeCol===0?0.4:1 }}>
+                  <ChevronLeft size={16} />
+                </button>
+                <span style={{ fontSize:12, fontWeight:600, minWidth:36, textAlign:'center' }}>{activeCol+1} / {datos.length}</span>
+                <button onClick={()=>setActiveCol(c=>Math.min(datos.length-1,c+1))} disabled={activeCol===datos.length-1}
+                  style={{ background:'transparent', border:'none', cursor:activeCol===datos.length-1?'not-allowed':'pointer', color:activeCol===datos.length-1?c.textSubtle:c.text, display:'flex', padding:2, opacity:activeCol===datos.length-1?0.4:1 }}>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+            <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', padding:8, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', color:c.textMuted }} onMouseEnter={e=>e.currentTarget.style.background=c.surfaceAlt} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Tabla scroll horizontal */}
@@ -2212,24 +3008,31 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
             <thead>
               <tr>
                 <th style={{ background:c.surface, position:'sticky', left:0, top:0, zIndex:6, minWidth:160 }}></th>
-                {datos.map(({p, puntaje}) => (
-                  <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
-                    {p.fotos?.[0] && (
-                      <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
-                        <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                {datos.map(({p, puntaje},i) => {
+                  if (isMobile && i !== activeCol) return null;
+                  return (
+                    <th key={p.id} style={{ padding:'14px 14px', textAlign:'left', background:c.surfaceAlt, borderBottom:`2px solid ${c.border}`, position:'sticky', top:0, zIndex:4, minWidth:180 }}>
+                      {p.fotos?.[0] ? (
+                        <div style={{ width:'100%', height:90, borderRadius:9, overflow:'hidden', marginBottom:10 }}>
+                          <img src={p.fotos[0]} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                        </div>
+                      ) : (
+                        <div style={{ width:'100%', height:90, borderRadius:9, background:semaforoBg(puntaje), marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <ImageIcon size={22} style={{ color:colorPuntaje(puntaje), opacity:0.35 }} />
+                        </div>
+                      )}
+                      <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
+                      <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
+                        {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
                       </div>
-                    )}
-                    <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>{p.nombre || 'Sin nombre'}</div>
-                    <div style={{ fontSize:11, color:c.textMuted, marginBottom:8 }}>
-                      {p.zona || 'Sin zona'}{p.tipo?` · ${p.tipo}`:''}{p.ambientes?` · ${p.ambientes} amb`:''}
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                      <div style={{ width:38, height:38, borderRadius:9, background:semaforoBg(puntaje), display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:colorPuntaje(puntaje) }}>{puntaje}</div>
-                      <div style={{ fontSize:11, color:c.textMuted }}>Puntaje</div>
-                    </div>
-                    <button onClick={()=>{ onClose(); onSelectProp(p.id); }} style={{ fontSize:11, fontWeight:600, color:c.accent, background:'transparent', border:`1px solid ${c.accent}`, borderRadius:7, padding:'5px 9px', cursor:'pointer' }}>Ver ficha completa</button>
-                  </th>
-                ))}
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                        <div style={{ width:38, height:38, borderRadius:9, background:semaforoBg(puntaje), display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:700, color:colorPuntaje(puntaje) }}>{puntaje}</div>
+                        <div style={{ fontSize:11, color:c.textMuted }}>Puntaje</div>
+                      </div>
+                      <button onClick={()=>{ onClose(); onSelectProp(p.id); }} style={{ fontSize:11, fontWeight:600, color:c.accent, background:'transparent', border:`1px solid ${c.accent}`, borderRadius:7, padding:'5px 9px', cursor:'pointer' }}>Ver ficha completa</button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -2262,6 +3065,25 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
                       : d.histPrecio.length >= 1
                         ? <span style={{ color:c.textMuted }}>Sin bajadas</span>
                         : <span style={{ color:c.textMuted }}>—</span>
+                    }
+                  </td>
+                ))}
+              </Row>
+              <Row label="Días en mercado">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    <span style={winnerStyle(winners.diasMercado===i)}>
+                      {d.diasMercado !== null ? `${d.diasMercado}d` : <span style={{ color:c.textMuted }}>—</span>}
+                    </span>
+                  </td>
+                ))}
+              </Row>
+              <Row label="Views/día">
+                {datos.map((d,i) => (
+                  <td key={d.p.id} style={cellStyle}>
+                    {d.viewsXDia !== null
+                      ? <span style={winnerStyle(winners.viewsXDia===i)}>{d.viewsXDia.toFixed(1)}</span>
+                      : <span style={{ color:c.textMuted }}>—</span>
                     }
                   </td>
                 ))}
@@ -2391,7 +3213,7 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
     if (e) e.stopPropagation();
     setSeleccionadas(prev => {
       if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 3) return prev; // máximo 3
+      if (prev.length >= 5) return prev; // máximo 5
       return [...prev, id];
     });
   };
@@ -2408,16 +3230,16 @@ const RankingView = ({ propiedades, criterios, presupuesto, config, isAdmin, onS
            display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 150ms',
            opacity: (!disabled || checked) ? 1 : 0.4
          }}
-         title={disabled && !checked ? 'Máximo 3 propiedades' : ''}>
+         title={disabled && !checked ? 'Máximo 5 propiedades' : ''}>
       {checked && <Check size={size-6} color="white" strokeWidth={3} />}
     </div>
   );
 
-  const limitReached = seleccionadas.length >= 3;
+  const limitReached = seleccionadas.length >= 5;
 
   return (
     <div style={{ maxWidth:1100, margin:'0 auto', padding:'30px 24px 110px' }}>
-      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado · Marcá 2 o 3 para comparar" />
+      <Hero eyebrow={`${ranked.length} ${ranked.length===1?'propiedad evaluada':'propiedades evaluadas'}`} titulo="Ranking" subtitulo="Ordenadas por puntaje ponderado · Marcá entre 2 y 5 para comparar" />
       {ranked.length === 0 ? (
         <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
           <Award size={28} style={{ color:c.textMuted, marginBottom:10 }} />
@@ -2953,7 +3775,7 @@ export default function App() {
   const [config, setConfig] = useState({ comisionPct:4, gastosPct:2, otrosPct:0, barriosDeseados:[], lugaresReferencia:[], excluyentesActivos:['terraza','banoCompleto','cocinaAmplia','luminoso','expensasBajas','listoVivir','gasNatural'], ambientesMinimos:0 });
   const [usuarios, setUsuarios] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [filtros, setFiltros] = useState({ zona:'', estado:'', busqueda:'', soloFavoritas:false });
+  const [filtros, setFiltros] = useState({ zonas:[], estados:[], busqueda:'', soloFavoritas:false, tipos:[] });
   const [showGestion, setShowGestion] = useState(false);
   const [showGuia, setShowGuia] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -2963,6 +3785,7 @@ export default function App() {
 
   const isAdmin = true; // sandbox por usuario: cada uno es admin de su propia data
   const isApproved = true; // sandbox por usuario: entrada directa, sin aprobación
+  const isMobile = useIsMobile();
 
   // 1. Auth listener
   useEffect(() => {
@@ -3112,6 +3935,19 @@ export default function App() {
     await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { estado: 'Para visitar' });
   }, [firebaseUser]);
 
+  const onDescartarProp = useCallback(async (id) => {
+    await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { estado: 'Descartada' });
+  }, [firebaseUser]);
+
+  const onEliminarProp = useCallback(async (id) => {
+    if (!confirm('¿Eliminar esta propiedad? Esta acción no se puede deshacer.')) return;
+    await deleteDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id));
+  }, [firebaseUser]);
+
+  const onToggleFavorita = useCallback(async (id, valor) => {
+    await updateDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', id), { favorita: valor });
+  }, [firebaseUser]);
+
   // Config/criterios/presupuesto handlers (guardan en Firestore)
   const setCriteriosFirestore = useCallback((updater) => {
     setCriterios(prev => {
@@ -3155,7 +3991,7 @@ export default function App() {
 
   return (
     <UserContext.Provider value={{ uid: firebaseUser?.uid }}>
-    <div style={{ minHeight:'100vh', background:c.bg, fontFamily:FONT, color:c.text }}>
+    <div style={{ minHeight:'100vh', background:c.bg, fontFamily:FONT, color:c.text, paddingBottom:isMobile?64:0 }}>
       <NavBar
         view={view}
         setView={v => { setView(v); setSelectedId(null); }}
@@ -3187,7 +4023,7 @@ export default function App() {
         />
       ) : (
         <>
-          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} />}
+          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} onDescartar={onDescartarProp} onEliminar={onEliminarProp} onToggleFavorita={onToggleFavorita} />}
           {view === 'ranking' && <RankingView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onSelectProp={setSelectedId} />}
           {view === 'descartadas' && <DescartadasView propiedades={propiedades} config={config} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
           {view === 'pesos' && <PesosView criterios={criterios} setCriterios={setCriteriosFirestore} isAdmin={isAdmin} />}
