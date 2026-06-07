@@ -1604,40 +1604,60 @@ const BarraCriterio = ({ label, valor, color }) => (
   </div>
 );
 
-// Dato de lectura compacto (mercado, datos clave) en la pestaña Decisión
-const ResumenDato = ({ label, valor, sub, subColor }) => (
-  <div>
-    <div style={{ fontSize:11, color:c.textMuted, marginBottom:3 }}>{label}</div>
-    <div style={{ fontSize:15, fontWeight:600, color:c.text }}>{valor}</div>
-    {sub && <div style={{ fontSize:11, color:subColor||c.textMuted, marginTop:2 }}>{sub}</div>}
-  </div>
-);
-
-
-
 // ============================================================
 // MINI LINE CHART (SVG puro, sin librerías)
 // ============================================================
+// Props:
+//   data       : [{ v: number }]  — la serie a graficar
+//   labels     : string[]         — opcional, etiqueta por punto (ej. fecha)
+//   formatValue: (v) => string    — opcional, cómo mostrar el valor en la lectura
+//   lineColor, areaColor, dotColors
+// Interacción: tap/hover en un punto → línea de lectura fija debajo del gráfico.
 
-const MiniLineChart = ({ data, lineColor, areaColor, dotColors }) => {
+const MiniLineChart = ({ data, labels, formatValue, lineColor, areaColor, dotColors }) => {
+  const [sel, setSel] = React.useState(null);
   if (!data || data.length < 2) return null;
-  const W = 400, H = 110, px = 12, py = 14;
+  const W = 320, H = 96, px = 14, py = 16;
+  // El SVG mantiene proporción (preserveAspectRatio por defecto = 'xMidYMid meet'),
+  // así los círculos no se deforman al escalar el ancho.
   const vals = data.map(d => d.v);
   const minV = Math.min(...vals), maxV = Math.max(...vals);
-  const spread = maxV - minV || maxV * 0.1 || 1;
+  const spread = maxV - minV || Math.abs(maxV) * 0.1 || 1;
   const xi = i => px + (i / (data.length - 1)) * (W - 2 * px);
   const yi = v => py + (1 - (v - minV) / spread) * (H - 2 * py);
   const pts = data.map((d, i) => [xi(i), yi(d.v)]);
   const linePts = pts.map(p => p.join(',')).join(' ');
   const areaD = `M${pts[0][0]},${pts[0][1]} ${pts.map(p=>`L${p[0]},${p[1]}`).join(' ')} L${pts[pts.length-1][0]},${H-py} L${pts[0][0]},${H-py}Z`;
+  const fmt = formatValue || (v => v.toLocaleString('es-AR'));
+  const selData = sel != null ? data[sel] : null;
+
   return (
-    <svg width="100%" height="110" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display:'block', margin:'10px 0' }}>
-      <path d={areaD} fill={areaColor} opacity="0.3" />
-      <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map(([cx, cy], i) => (
-        <circle key={i} cx={cx} cy={cy} r="5" fill={dotColors?.[i] ?? lineColor} stroke="white" strokeWidth="2" />
-      ))}
-    </svg>
+    <div style={{ margin:'10px 0' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display:'block', overflow:'visible' }}>
+        <path d={areaD} fill={areaColor} opacity="0.3" />
+        <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map(([cx, cy], i) => (
+          <g key={i}>
+            {/* área de toque generosa, invisible */}
+            <circle cx={cx} cy={cy} r="14" fill="transparent" style={{ cursor:'pointer' }}
+              onMouseEnter={()=>setSel(i)} onMouseLeave={()=>setSel(null)} onClick={()=>setSel(s=>s===i?null:i)} />
+            <circle cx={cx} cy={cy} r={sel===i?6:4.5} fill={dotColors?.[i] ?? lineColor} stroke="white" strokeWidth="2"
+              style={{ pointerEvents:'none', transition:'r 120ms' }} />
+          </g>
+        ))}
+      </svg>
+      {/* Línea de lectura fija: muestra el punto seleccionado */}
+      <div style={{ marginTop:6, fontSize:12, color:c.textMuted, textAlign:'center', minHeight:18 }}>
+        {selData ? (
+          <span>
+            {labels?.[sel] && <span style={{ color:c.textSubtle }}>{labels[sel]} · </span>}
+            <strong style={{ color:c.text }}>{fmt(selData.v)}</strong>
+          </span>
+        ) : (
+          <span style={{ color:c.textSubtle }}>Tocá un punto para ver el detalle</span>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -1716,25 +1736,33 @@ const SemaforoDemanda = ({ prop, update }) => {
         </div>
       )}
 
-      {/* Velocidad de demanda */}
+      {/* Evolución del promedio (views/día acumulado desde la publicación) */}
       {(() => {
         if (historial.length < 2) return null;
-        const velocidades = historial.slice(1).map((r, i) => {
-          const dias = Math.max(1, (new Date(r.fecha) - new Date(historial[i].fecha)) / (1000*60*60*24));
-          const delta = Math.max(0, r.views - historial[i].views);
-          return { v: parseFloat((delta / dias).toFixed(1)), fecha: r.fecha };
-        });
-        if (velocidades.length === 1) return (
-          <div style={{ marginBottom:14, padding:'10px 14px', background:c.surfaceAlt, borderRadius:10, fontSize:13, color:c.textMuted }}>
-            <span style={{ fontWeight:600, color:c.text }}>{velocidades[0].v.toLocaleString('es-AR')} views/día</span> en el período registrado
+        // Cada punto: views del registro / días desde la fecha de publicación hasta ese registro.
+        // Mismo criterio que el semáforo, así ambos cuentan la misma historia.
+        if (!prop.fechaPublicacion) return (
+          <div style={{ marginBottom:14, fontSize:12, color:c.textMuted, padding:10, background:c.surfaceAlt, borderRadius:8 }}>
+            Cargá la fecha de publicación para ver cómo evoluciona el promedio de views/día.
           </div>
         );
+        const fPub = new Date(prop.fechaPublicacion);
+        const promedios = historial.map(r => {
+          const dias = Math.max(1, (new Date(r.fecha) - fPub) / (1000*60*60*24));
+          return { v: parseFloat((r.views / dias).toFixed(1)), fecha: r.fecha };
+        });
+        const fmtFecha = f => { const d = new Date(f); return isNaN(d) ? f : d.toLocaleDateString('es-AR', { day:'numeric', month:'short' }); };
         return (
-          <MiniLineChart
-            data={velocidades}
-            lineColor={c.accent}
-            areaColor={c.accentSoft}
-          />
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:11, fontWeight:600, color:c.textMuted, marginBottom:2 }}>Evolución del promedio (views/día)</div>
+            <MiniLineChart
+              data={promedios}
+              labels={promedios.map(p => fmtFecha(p.fecha))}
+              formatValue={v => `${v.toLocaleString('es-AR')} views/día`}
+              lineColor={c.accent}
+              areaColor={c.accentSoft}
+            />
+          </div>
         );
       })()}
 
@@ -2367,6 +2395,8 @@ const HistorialPrecio = ({ prop, update }) => {
       {historial.length >= 2 && (
         <MiniLineChart
           data={historial.map(r => ({ v: r.precio }))}
+          labels={historial.map(r => r.fecha)}
+          formatValue={v => fmtUSD(v)}
           lineColor={c.textMuted}
           areaColor={c.borderStrong}
           dotColors={dotColors}
@@ -2634,7 +2664,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           </Card>
 
           {/* LAS 3 SEÑALES */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10, marginBottom:14 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:10, marginBottom:14 }}>
             <Card style={{ padding:'14px 16px' }}>
               <div style={{ fontSize:11, color:c.textMuted, marginBottom:6 }}>Puntaje</div>
               <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
@@ -2721,19 +2751,19 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             {/* En el mercado */}
             <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
               <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>En el mercado</div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8 }}>
-                <div style={{ background:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${c.border}` }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:8 }}>
+                <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Precio / m²</div>
                   <div style={{ fontSize:16, fontWeight:700 }}>{usdM2?fmtUSD(usdM2):'—'}</div>
                   {m2DiffPct!=null && <div style={{ fontSize:11, marginTop:4, color:m2DiffPct>0?c.red:c.green, fontWeight:600 }}>{m2DiffPct>0?'+':''}{m2DiffPct.toFixed(0)}% vs barrio</div>}
                   {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSD(promBarrio)}/m²</div>}
                 </div>
-                <div style={{ background:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${c.border}` }}>
+                <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Publicado</div>
                   <div style={{ fontSize:16, fontWeight:700 }}>{diasMercado!=null?`${diasMercado}d`:'—'}</div>
                   {diasMercado!=null && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>en el mercado</div>}
                 </div>
-                <div style={{ background:viewsSemaforo?`${viewsSemaforo.color}14`:c.surface, borderRadius:10, padding:'12px 14px', border:`1px solid ${viewsSemaforo?`${viewsSemaforo.color}33`:c.border}` }}>
+                <div style={{ background:viewsSemaforo?`${viewsSemaforo.color}14`:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${viewsSemaforo?`${viewsSemaforo.color}33`:c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Demanda</div>
                   <div style={{ fontSize:16, fontWeight:700 }}>{viewsDia!=null?`${viewsDia.toFixed(1)}/día`:'—'}</div>
                   {viewsSemaforo && <div style={{ fontSize:11, color:viewsSemaforo.color, marginTop:4, fontWeight:600 }}>{viewsSemaforo.label}</div>}
