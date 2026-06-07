@@ -255,6 +255,24 @@ const calcularAnalisis = (prop, pres, config) => {
 
 const colorAnalisis = e => e==='verde'?{fg:c.green,bg:c.greenSoft,label:'Sobra'} : e==='amber'?{fg:c.amber,bg:c.amberSoft,label:'Justo'} : e==='rojo'?{fg:c.red,bg:c.redSoft,label:'Falta'} : {fg:c.textMuted,bg:'#F0EFEB',label:'—'};
 
+// Promedio acumulado de views/día desde la publicación al último registro.
+// Único criterio para semáforo, gráfico, señal del header, dashboard y comparador.
+// El número del semáforo = último punto del gráfico. Siempre.
+const calcViewsDia = (prop) => {
+  const hist = prop.aviso?.historialViews || [];
+  const fPub = prop.fechaPublicacion ? new Date(prop.fechaPublicacion) : null;
+  if (hist.length && fPub) {
+    const ult = hist[hist.length - 1];
+    const dias = Math.max(1, Math.floor((new Date(ult.fecha) - fPub) / 86400000));
+    return ult.views / dias;
+  }
+  // Fallback sin historial: campo "Views actuales" / días hasta hoy.
+  if (parseInt(prop.views) && fPub) {
+    const dias = Math.max(1, Math.floor((new Date() - fPub) / 86400000));
+    return parseInt(prop.views) / dias;
+  }
+  return null;
+};
 
 // ============================================================
 // ONBOARDING — SLIDES Y GUÍA
@@ -1085,10 +1103,8 @@ const PropCard = ({ prop, criterios, presupuesto, config, isAdmin, onClick, onDe
         </div>
         {!cumple && <div style={{ marginTop:8, fontSize:11, color:c.red, display:'flex', alignItems:'center', gap:4 }}><AlertCircle size={11} />No cumple excluyentes</div>}
         {(() => {
-          const hist = prop.aviso?.historialViews || [];
-          if (hist.length < 2) return null;
-          const diffDias = Math.max(1, (new Date(hist[hist.length-1].fecha) - new Date(hist[0].fecha)) / (1000*60*60*24));
-          const vxd = (hist[hist.length-1].views - hist[0].views) / diffDias;
+          const vxd = calcViewsDia(prop);
+          if (vxd == null) return null;
           const emoji = vxd < 10 ? '🔴' : vxd <= 30 ? '🟡' : '🟢';
           const label = vxd < 10 ? 'Frío' : vxd <= 30 ? 'Normal' : 'Caliente';
           return (
@@ -1689,15 +1705,13 @@ const SemaforoDemanda = ({ prop, update }) => {
     ? Math.max(1, Math.floor((new Date() - new Date(prop.fechaPublicacion)) / (1000*60*60*24)))
     : null;
 
-  // Semáforo: promedio de visitas por día desde la publicación.
-  // Usa la última carga de views (último registro del historial o, si no hay, el campo Views actuales).
-  const viewsActuales = historial.length ? historial[historial.length - 1].views : (parseInt(prop.views) || null);
+  // Semáforo: promedio acumulado views/día. Mismo criterio que el gráfico (último punto).
+  const _vxd = calcViewsDia(prop);
   let semaforo = null;
-  if (viewsActuales != null && diasMercado) {
-    const prom = viewsActuales / diasMercado;
-    if (prom < 10) semaforo = { color: c.red, bg: c.redSoft, emoji: '🔴', label: 'Poco interés', valor: prom };
-    else if (prom <= 30) semaforo = { color: c.amber, bg: c.amberSoft, emoji: '🟡', label: 'Interés normal', valor: prom };
-    else semaforo = { color: c.green, bg: c.greenSoft, emoji: '🟢', label: 'Muy buscado', valor: prom };
+  if (_vxd != null) {
+    if (_vxd < 10) semaforo = { color: c.red, bg: c.redSoft, emoji: '🔴', label: 'Poco interés', valor: _vxd };
+    else if (_vxd <= 30) semaforo = { color: c.amber, bg: c.amberSoft, emoji: '🟡', label: 'Interés normal', valor: _vxd };
+    else semaforo = { color: c.green, bg: c.greenSoft, emoji: '🟢', label: 'Muy buscado', valor: _vxd };
   }
 
   return (
@@ -2561,11 +2575,9 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const loQueSuma = [...criteriosPuntuados].filter(x => x.p >= 6).sort((a, b) => b.suma - a.suma).slice(0, 3);
   const loQueBaja = [...criteriosPuntuados].filter(x => x.p <= 5 && x.perdida > 0).sort((a, b) => b.perdida - a.perdida).slice(0, 3);
 
-  // --- Mercado (misma fórmula que SemaforoDemanda) ---
+  // --- Mercado (usa calcViewsDia — mismo criterio que semáforo y gráfico) ---
   const diasMercado = prop.fechaPublicacion ? Math.max(1, Math.floor((new Date() - new Date(prop.fechaPublicacion)) / 86400000)) : null;
-  const histViews = prop.aviso?.historialViews || [];
-  const viewsUlt = histViews.length ? histViews[histViews.length - 1].views : (parseInt(prop.views) || null);
-  const viewsDia = (viewsUlt != null && diasMercado) ? viewsUlt / diasMercado : null;
+  const viewsDia = calcViewsDia(prop);
   const viewsSemaforo = viewsDia == null ? null : viewsDia < 10 ? { color:c.red, label:'Poco interés' } : viewsDia <= 30 ? { color:c.amber, label:'Interés normal' } : { color:c.green, label:'Muy buscado' };
   const promBarrio = PRECIOS_BARRIO_USADO[prop.zona] || (prop.promedioBarrio ? Number(prop.promedioBarrio) : null);
   const m2DiffPct = (usdM2 && promBarrio) ? ((usdM2 - promBarrio) / promBarrio) * 100 : null;
@@ -2754,18 +2766,18 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:8 }}>
                 <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Precio / m²</div>
-                  <div style={{ fontSize:16, fontWeight:700 }}>{usdM2?fmtUSD(usdM2):'—'}</div>
+                  <div style={{ fontSize:isMobile?14:16, fontWeight:700, letterSpacing:isMobile?'-0.02em':undefined }}>{usdM2?fmtUSDk(usdM2):'—'}</div>
                   {m2DiffPct!=null && <div style={{ fontSize:11, marginTop:4, color:m2DiffPct>0?c.red:c.green, fontWeight:600 }}>{m2DiffPct>0?'+':''}{m2DiffPct.toFixed(0)}% vs barrio</div>}
-                  {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSD(promBarrio)}/m²</div>}
+                  {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSDk(promBarrio)}/m²</div>}
                 </div>
                 <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Publicado</div>
-                  <div style={{ fontSize:16, fontWeight:700 }}>{diasMercado!=null?`${diasMercado}d`:'—'}</div>
+                  <div style={{ fontSize:isMobile?14:16, fontWeight:700 }}>{diasMercado!=null?`${diasMercado}d`:'—'}</div>
                   {diasMercado!=null && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>en el mercado</div>}
                 </div>
                 <div style={{ background:viewsSemaforo?`${viewsSemaforo.color}14`:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${viewsSemaforo?`${viewsSemaforo.color}33`:c.border}` }}>
                   <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Demanda</div>
-                  <div style={{ fontSize:16, fontWeight:700 }}>{viewsDia!=null?`${viewsDia.toFixed(1)}/día`:'—'}</div>
+                  <div style={{ fontSize:isMobile?14:16, fontWeight:700 }}>{viewsDia!=null?`${viewsDia.toFixed(1)}/día`:'—'}</div>
                   {viewsSemaforo && <div style={{ fontSize:11, color:viewsSemaforo.color, marginTop:4, fontWeight:600 }}>{viewsSemaforo.label}</div>}
                 </div>
               </div>
@@ -3192,12 +3204,8 @@ const ComparadorModal = ({ propiedades, criterios, presupuesto, config, isAdmin,
     const diasMercado = p.fechaPublicacion
       ? Math.floor((new Date() - new Date(p.fechaPublicacion)) / (1000*60*60*24))
       : null;
-    // Views/día (promedio global)
-    const histViews = p.aviso?.historialViews || [];
-    const viewsXDia = histViews.length >= 2
-      ? (histViews[histViews.length-1].views - histViews[0].views) /
-        Math.max(1, (new Date(histViews[histViews.length-1].fecha) - new Date(histViews[0].fecha)) / (1000*60*60*24))
-      : null;
+    // Views/día (promedio acumulado desde publicación — mismo criterio que semáforo y gráfico)
+    const viewsXDia = calcViewsDia(p);
     return { p, m2pond, usdM2, analisis, puntaje, vsBarrio, totalExcl, cumpleExclCount, bajadas, histPrecio, diasMercado, viewsXDia };
   });
 
