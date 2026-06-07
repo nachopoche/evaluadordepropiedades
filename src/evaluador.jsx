@@ -1686,6 +1686,7 @@ const SemaforoDemanda = ({ prop, update }) => {
   const [nuevaFecha, setNuevaFecha] = React.useState('');
   const [nuevasViews, setNuevasViews] = React.useState('');
   const [showTip, setShowTip] = React.useState(false);
+  const [showTipViews, setShowTipViews] = React.useState(false);
 
   const agregarRegistro = () => {
     if (!nuevaFecha || !nuevasViews) return;
@@ -1783,7 +1784,22 @@ const SemaforoDemanda = ({ prop, update }) => {
       {/* Historial */}
       {historial.length > 0 && (
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, fontWeight:600, color:c.textMuted, marginBottom:8 }}>Historial de views</div>
+          <div style={{ fontSize:11, fontWeight:600, color:c.textMuted, marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
+            Historial de views
+            <span style={{ position:'relative', display:'inline-flex' }}>
+              <span
+                onMouseEnter={()=>setShowTipViews(true)} onMouseLeave={()=>setShowTipViews(false)} onClick={()=>setShowTipViews(s=>!s)}
+                style={{ cursor:'help', width:16, height:16, borderRadius:'50%', border:`1px solid ${c.textMuted}`, color:c.textMuted, fontSize:10, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+              >?</span>
+              {showTipViews && (
+                <div style={{ position:'absolute', left:0, top:20, width:260, padding:'10px 12px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', zIndex:30, fontSize:11.5, lineHeight:1.6, color:c.textMuted, fontWeight:400 }}>
+                  <strong style={{ color:c.text }}>¿Qué es esto?</strong> Zonaprop muestra cuántas veces se vio el aviso desde que se publicó. Ese número siempre crece.<br/><br/>
+                  Cargalo cada vez que revisás la propiedad: la app lo guarda con fecha y calcula cuántas views por día acumula desde la publicación.<br/><br/>
+                  Si el promedio <strong style={{ color:c.green }}>sube</strong>, genera interés. Si <strong style={{ color:c.red }}>baja</strong>, se está enfriando. Eso te da poder para negociar.
+                </div>
+              )}
+            </span>
+          </div>
           {historial.map((r, i) => {
             const delta = i > 0 ? r.views - historial[i-1].views : null;
             return (
@@ -2365,6 +2381,7 @@ const HistorialPrecio = ({ prop, update }) => {
   const historial = prop.aviso?.historialPrecio || [];
   const [nuevaFecha, setNuevaFecha] = React.useState('');
   const [nuevoPrecio, setNuevoPrecio] = React.useState('');
+  const [showTipPrecio, setShowTipPrecio] = React.useState(false);
 
   const agregarRegistro = () => {
     if (!nuevaFecha || !nuevoPrecio) return;
@@ -2397,7 +2414,20 @@ const HistorialPrecio = ({ prop, update }) => {
 
   return (
     <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${c.border}` }}>
-      <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10 }}>Historial de precio</div>
+      <div style={{ fontSize:12, fontWeight:600, color:c.textMuted, marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+        Historial de precio
+        <span style={{ position:'relative', display:'inline-flex' }}>
+          <span
+            onMouseEnter={()=>setShowTipPrecio(true)} onMouseLeave={()=>setShowTipPrecio(false)} onClick={()=>setShowTipPrecio(s=>!s)}
+            style={{ cursor:'help', width:16, height:16, borderRadius:'50%', border:`1px solid ${c.textMuted}`, color:c.textMuted, fontSize:10, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+          >?</span>
+          {showTipPrecio && (
+            <div style={{ position:'absolute', left:0, top:20, width:240, padding:'10px 12px', background:c.surfaceAlt, border:`1px solid ${c.border}`, borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', zIndex:30, fontSize:11.5, lineHeight:1.6, color:c.textMuted, fontWeight:400 }}>
+              Registrá el precio cada vez que cambie. Si el dueño lo bajó, lo vas a ver acá con el porcentaje de baja: señal de que hay margen para negociar.
+            </div>
+          )}
+        </span>
+      </div>
 
       {bajada && (
         <div style={{ marginBottom:12, padding:'10px 14px', background:c.greenSoft, borderRadius:10, fontSize:13, color:c.green, fontWeight:500 }}>
@@ -2521,6 +2551,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
     const badges = filled.filter(k => k.includes('.')).length;
     setToastMsg(`✨ Valora completó ${filled.length} campos${badges > 0 ? ` · Revisá los ${badges} marcados con ✨` : ''}.`);
     setTimeout(() => setToastMsg(null), 5000);
+    return filled.length;
   };
 
   const lanzarCargaRapida = async () => {
@@ -2529,11 +2560,15 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
     try {
       const fn = httpsCallable(functions, 'parsearAviso');
       const result = await fn({ texto: textoAviso });
-      aplicarCargaRapida(result.data);
-      setShowCargaRapida(false);
-      setTextoAviso('');
+      const n = aplicarCargaRapida(result.data);
+      if (n === 0) {
+        setErrorIA('No pude sacar datos de este texto. Probá pegar solo la descripción del aviso, o cargá los datos a mano.');
+      } else {
+        setShowCargaRapida(false);
+        setTextoAviso('');
+      }
     } catch (e) {
-      setErrorIA(e?.message ? `Error: ${e.message}` : 'No se pudo procesar el aviso. Intentá de nuevo.');
+      setErrorIA('No pude leer el aviso. Reintentá, o cargá los datos a mano.');
     } finally {
       setCargandoIA(false);
     }
@@ -2643,9 +2678,10 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
           {errorIA && <div style={{ color:c.red, fontSize:12, marginBottom:10, display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
           <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
             style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'12px 26px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:c.accent, color:'white', border:'none', borderRadius:11, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:14, fontWeight:600, fontFamily:FONT }}>
-            {cargandoIA ? 'Analizando…' : <><ClaudeMark size={16} color="white" /> Completar con Claude</>}
+            {cargandoIA ? 'Analizando…' : <>✨ Detectar y completar</>}
           </button>
-          <div style={{ marginTop:16 }}>
+          <div style={{ marginTop:10, fontSize:11, color:c.textSubtle }}>con IA de Claude</div>
+          <div style={{ marginTop:8 }}>
             <button onClick={()=>setSecActiva('inmueble')} style={{ background:'transparent', border:'none', color:c.textMuted, fontSize:12.5, cursor:'pointer', fontFamily:FONT, textDecoration:'underline', textUnderlineOffset:3 }}>
               o cargá los datos a mano
             </button>
@@ -3129,7 +3165,7 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
                 <div style={{ fontSize:16, fontWeight:700, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}><LogoV size={20} /> Pegar aviso</div>
                 <div style={{ fontSize:12, color:c.textMuted, lineHeight:1.5 }}>
                   Copiá todo el texto del aviso de Zonaprop, Argenprop o MercadoLibre y pegalo acá.<br />
-                  <span style={{ color:c.textSubtle }}>Lo completa Claude (Haiku 4.5)</span>
+                  <span style={{ color:c.textSubtle }}>con IA de Claude</span>
                 </div>
               </div>
               <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', cursor:'pointer', color:c.textMuted, padding:4, display:'flex', flexShrink:0 }}><X size={18} /></button>
@@ -3142,10 +3178,11 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             />
             {errorIA && <div style={{ color:c.red, fontSize:12, marginTop:8, display:'flex', alignItems:'center', gap:5 }}><AlertCircle size={13}/> {errorIA}</div>}
             <div style={{ display:'flex', gap:10, marginTop:14, justifyContent:'flex-end', alignItems:'center' }}>
+              <button onClick={()=>setShowCargaRapida(false)} style={{ background:'transparent', border:'none', color:c.textMuted, fontSize:12, cursor:'pointer', fontFamily:FONT, textDecoration:'underline', textUnderlineOffset:3, marginRight:'auto', padding:0 }}>cargá los datos a mano</button>
               <Button variant="secondary" onClick={()=>setShowCargaRapida(false)}>Cancelar</Button>
               <button onClick={lanzarCargaRapida} disabled={cargandoIA || !textoAviso.trim()}
                 style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:cargandoIA||!textoAviso.trim()?c.borderStrong:c.accent, color:'white', border:'none', borderRadius:10, cursor:cargandoIA||!textoAviso.trim()?'not-allowed':'pointer', fontSize:13, fontWeight:600, fontFamily:FONT, transition:'background 200ms' }}>
-                {cargandoIA ? 'Analizando...' : <><ClaudeMark size={15} color="white" /> Completar con Claude</>}
+                {cargandoIA ? 'Analizando...' : <>✨ Detectar y completar</>}
               </button>
             </div>
           </div>
