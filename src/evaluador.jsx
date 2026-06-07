@@ -1212,9 +1212,11 @@ const FiltroDropdown = ({ label, options, selected, onToggle, onClear }) => {
 // LISTA VIEW
 // ============================================================
 
-const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp, onDescartar, onEliminar, onToggleFavorita }) => {
+const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtros, setFiltros, onSelectProp, onNuevaProp, onNuevaPropConTexto, onDescartar, onEliminar, onToggleFavorita }) => {
   const { uid } = useUser();
   const isMobile = useIsMobile();
+  const [textoLista, setTextoLista] = React.useState('');
+  const [cargandoLista, setCargandoLista] = React.useState(false);
   const handleSelectProp = (id) => { trackEvent(uid, 'detalleAbierto'); onSelectProp(id); };
   const filtradas = useMemo(() => propiedades.filter(p => {
     if (p.estado === 'Descartada') return false;
@@ -1303,22 +1305,45 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
       </div>
 
       {filtradas.length === 0 ? (
-        <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
-          <div style={{ width:52, height:52, borderRadius:'50%', background:c.border, margin:'0 auto 14px', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <Home size={22} style={{ color:c.textMuted }} />
-          </div>
-          <h3 style={{ margin:'0 0 8px', fontSize:16, fontWeight:600 }}>
-            {propiedades.length===0 ? 'Todavía no cargaste ninguna propiedad' : 'Sin resultados con esos filtros'}
-          </h3>
-          <p style={{ margin:'0 0 16px', color:c.textMuted, fontSize:14, lineHeight:1.6 }}>
-            {propiedades.length===0
-              ? (isAdmin
-                  ? 'Cada vez que encontrés una propiedad que te interese en Zonaprop o Argenprop, la cargás acá y la evaluás. Valora la ordena automáticamente por puntaje.'
-                  : 'Los admins todavía no cargaron propiedades.')
-              : 'Probá quitar algún filtro.'}
-          </p>
-          {propiedades.length===0 && isAdmin && <Button variant="primary" onClick={onNuevaProp}><Plus size={15} /> Nueva propiedad</Button>}
-        </Card>
+        propiedades.length === 0 ? (
+          /* --- ESTADO VACÍO REAL: invitación a pegar el primer aviso --- */
+          <Card style={{ padding:isMobile?22:36, textAlign:'center', border:`1.5px solid ${c.accent}33`, background:`linear-gradient(180deg, ${c.accentSoft}, ${c.surface} 70%)` }}>
+            <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+              <LogoV size={48} />
+            </div>
+            <div style={{ fontSize:20, fontWeight:700, marginBottom:6, letterSpacing:'-0.01em' }}>Cargá tu primera propiedad</div>
+            <div style={{ fontSize:13.5, color:c.textMuted, lineHeight:1.6, maxWidth:440, margin:'0 auto 18px' }}>
+              Pegá el texto de un aviso de Zonaprop, Argenprop o MercadoLibre y se completan todos los campos automáticamente.
+            </div>
+            <textarea
+              value={textoLista}
+              onChange={e => setTextoLista(e.target.value)}
+              placeholder="Pegá acá todo el texto del aviso…"
+              style={{ width:'100%', height:120, padding:13, borderRadius:12, border:`1px solid ${c.border}`, fontFamily:FONT, fontSize:13, resize:'vertical', background:c.surface, color:c.text, outline:'none', boxSizing:'border-box', lineHeight:1.6, marginBottom:12, textAlign:'left' }}
+            />
+            <button
+              onClick={async () => { setCargandoLista(true); await onNuevaPropConTexto(textoLista); setCargandoLista(false); }}
+              disabled={cargandoLista || !textoLista.trim()}
+              style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'12px 26px', background:cargandoLista||!textoLista.trim()?c.borderStrong:c.accent, color:'white', border:'none', borderRadius:11, cursor:cargandoLista||!textoLista.trim()?'not-allowed':'pointer', fontSize:14, fontWeight:600, fontFamily:FONT }}>
+              {cargandoLista ? 'Creando propiedad…' : <>✨ Detectar y completar</>}
+            </button>
+            <div style={{ marginTop:10, fontSize:11, color:c.textSubtle }}>con IA de Claude</div>
+            <div style={{ marginTop:8 }}>
+              <button onClick={onNuevaProp} style={{ background:'transparent', border:'none', color:c.textMuted, fontSize:12.5, cursor:'pointer', fontFamily:FONT, textDecoration:'underline', textUnderlineOffset:3 }}>
+                o cargá los datos a mano
+              </button>
+            </div>
+          </Card>
+        ) : (
+          /* --- SIN RESULTADOS CON FILTROS --- */
+          <Card style={{ textAlign:'center', padding:56, background:c.surfaceAlt }}>
+            <div style={{ width:52, height:52, borderRadius:'50%', background:c.border, margin:'0 auto 14px', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Home size={22} style={{ color:c.textMuted }} />
+            </div>
+            <h3 style={{ margin:'0 0 8px', fontSize:16, fontWeight:600 }}>Sin resultados con esos filtros</h3>
+            <p style={{ margin:'0 0 16px', color:c.textMuted, fontSize:14, lineHeight:1.6 }}>Probá quitar algún filtro.</p>
+          </Card>
+        )
       ) : (
         <div style={{ display:'grid', gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill, minmax(280px, 1fr))', gap:isMobile?14:18 }}>
           {filtradas.map(prop => <PropCard key={prop.id} prop={prop} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onClick={()=>handleSelectProp(prop.id)} onDescartar={onDescartar} onEliminar={onEliminar} onToggleFavorita={onToggleFavorita} />)}
@@ -2481,7 +2506,7 @@ const HistorialPrecio = ({ prop, update }) => {
 // DETALLE VIEW
 // ============================================================
 
-const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, propiedades, onBack, onDelete }) => {
+const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, userId, propiedades, onBack, onDelete, textoParseoPendiente, onClearTextoPendiente }) => {
   const DETALLE_TABS = [
     { id:'decision',   label:'Decisión',           icon:Navigation },
     { id:'inmueble',   label:'El inmueble',        icon:Ruler },
@@ -2499,6 +2524,24 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
   const [cargandoIA, setCargandoIA] = useState(false);
   const [errorIA, setErrorIA] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
+
+  // Auto-parsear si venimos desde la lista vacía con texto pegado
+  useEffect(() => {
+    if (!textoParseoPendiente?.trim()) return;
+    const texto = textoParseoPendiente;
+    if (onClearTextoPendiente) onClearTextoPendiente();
+    setTextoAviso(texto);
+    setCargandoIA(true);
+    setErrorIA(null);
+    httpsCallable(functions, 'parsearAviso')({ texto })
+      .then(result => {
+        const n = aplicarCargaRapida(result.data);
+        if (n === 0) setErrorIA('No pude sacar datos de este texto. Probá pegar solo la descripción del aviso, o cargá los datos a mano.');
+        else setTextoAviso('');
+      })
+      .catch(() => setErrorIA('No pude leer el aviso. Reintentá, o cargá los datos a mano.'))
+      .finally(() => setCargandoIA(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // compatibilidad: sec.X === true solo para la sección activa
   const sec = Object.fromEntries(DETALLE_TABS.map(t => [t.id, secActiva !== null && t.id === secActiva]));
   const toggle = k => setSecActiva(k);
@@ -2535,17 +2578,22 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
      'gimnasio','ascensor','laundry'].forEach(k => {
       if (json.comodidades?.[k]) { update(`comodidades.${k}`, true); filled.push(`comodidades.${k}`); }
     });
-    // Geocodificar dirección automáticamente para activar el mapa
-    if (json.direccion && window.google?.maps?.Geocoder) {
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ address: json.direccion + ', Buenos Aires, Argentina' }, (results, status) => {
-        if (status === 'OK' && results[0]) {
-          const loc = results[0].geometry.location;
-          update('lat', loc.lat());
-          update('lng', loc.lng());
-          update('distanciasHash', '');
-        }
-      });
+    // Geocodificar dirección automáticamente para activar el mapa.
+    // Llama a loadGoogleMaps() primero — si ya estaba cargado resuelve al instante,
+    // si no lo carga. Evita el bug de geocodificación silenciosa cuando el usuario
+    // nunca abrió la pestaña Mapa antes de pegar el aviso.
+    if (json.direccion) {
+      loadGoogleMaps().then(() => {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ address: json.direccion + ', Buenos Aires, Argentina' }, (results, status) => {
+          if (status === 'OK' && results[0]) {
+            const loc = results[0].geometry.location;
+            update('lat', loc.lat());
+            update('lng', loc.lng());
+            update('distanciasHash', '');
+          }
+        });
+      }).catch(() => {});
     }
     setAiFilled(filled);
     const badges = filled.filter(k => k.includes('.')).length;
@@ -4121,6 +4169,7 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(false);
   const [showMigracion, setShowMigracion] = useState(false);
   const [migracionDisponible, setMigracionDisponible] = useState(false);
+  const [textoParseoPendiente, setTextoParseoPendiente] = useState('');
 
   const isAdmin = true; // sandbox por usuario: cada uno es admin de su propia data
   const isApproved = true; // sandbox por usuario: entrada directa, sin aprobación
@@ -4253,6 +4302,15 @@ export default function App() {
     setSelectedId(docRef.id);
   }, [firebaseUser]);
 
+  const onNuevaPropConTexto = useCallback(async (texto) => {
+    if (!firebaseUser || !texto?.trim()) return;
+    const nueva = { nombre:'Nueva propiedad', estado:'Para visitar', excluyentes:{}, puntajes:{}, favorita:false, gastosPct:2, createdAt: new Date().toISOString() };
+    const docRef = await addDoc(collection(db, 'users', firebaseUser.uid, 'propiedades'), nueva);
+    trackEvent(firebaseUser.uid, 'propiedadesCreadas');
+    setTextoParseoPendiente(texto);
+    setSelectedId(docRef.id);
+  }, [firebaseUser]);
+
   const onDelete = useCallback(async () => {
     if (!confirm('¿Eliminar esta propiedad? Esta acción no se puede deshacer.')) return;
     await deleteDoc(doc(db, 'users', firebaseUser.uid, 'propiedades', selectedId));
@@ -4360,10 +4418,12 @@ export default function App() {
           propiedades={propiedades}
           onBack={() => setSelectedId(null)}
           onDelete={onDelete}
+          textoParseoPendiente={textoParseoPendiente}
+          onClearTextoPendiente={() => setTextoParseoPendiente('')}
         />
       ) : (
         <>
-          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} onDescartar={onDescartarProp} onEliminar={onEliminarProp} onToggleFavorita={onToggleFavorita} />}
+          {view === 'lista' && <ListaView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} filtros={filtros} setFiltros={setFiltros} onSelectProp={setSelectedId} onNuevaProp={onNuevaProp} onNuevaPropConTexto={onNuevaPropConTexto} onDescartar={onDescartarProp} onEliminar={onEliminarProp} onToggleFavorita={onToggleFavorita} />}
           {view === 'ranking' && <RankingView propiedades={propiedades} criterios={criterios} presupuesto={presupuesto} config={config} isAdmin={isAdmin} onSelectProp={setSelectedId} />}
           {view === 'descartadas' && <DescartadasView propiedades={propiedades} config={config} isAdmin={isAdmin} onRecuperar={onRecuperar} onSelectProp={setSelectedId} />}
           {view === 'pesos' && <PesosView criterios={criterios} setCriterios={setCriteriosFirestore} isAdmin={isAdmin} />}
