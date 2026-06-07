@@ -282,26 +282,25 @@ const ONBOARDING_SLIDES = [
   {
     emoji: '🏠',
     titulo: '¿Qué es Valora?',
-    cuerpo: 'Es tu espacio para evaluar y comparar propiedades mientras buscás casa. Cargás las que te interesan, las puntuás según lo que más te importa, y Valora te dice cuál gana.',
-    hint: 'Empezá cargando tu primera propiedad con el botón "Nueva propiedad".',
+    cuerpo: 'Valora no busca propiedades — para eso usás Zonaprop, Argenprop o MercadoLibre. Te ayuda con el paso siguiente: decidir entre las que ya te interesan.',
   },
   {
-    emoji: '⚖️',
-    titulo: 'Pesos vs. Excluyentes',
-    cuerpo: 'Son dos cosas distintas:\n\n• Pesos: qué tan importante es cada criterio (del 1 al 5). Una propiedad puede tener cochera o no, y eso suma o resta al puntaje.\n\n• Excluyentes: es sí o no. Si una propiedad no cumple un excluyente activo, queda descartada automáticamente — no importa qué puntaje tenga.',
-    hint: 'Ejemplo: si tenés "Mínimo 3 ambientes" como excluyente, un monoambiente ni aparece en el ranking.',
+    emoji: '✨',
+    titulo: 'Lo que hace por vos',
+    cuerpo: 'Sobre las propiedades que cargás, Valora:',
+    bullets: [
+      { destacado: 'Las puntúa', texto: 'según lo que a vos te importa y arma un ranking.' },
+      { destacado: 'Calcula el costo real', texto: '(precio + comisión + gastos) y te dice si entra en tu presupuesto.' },
+      { destacado: 'Te deja compararlas lado a lado,', texto: 'fila por fila.' },
+      { destacado: 'Marca tus condiciones innegociables', texto: 'y te avisa si una propiedad no las cumple.' },
+      { destacado: 'Sigue el precio y la demanda', texto: 'del aviso con el tiempo, para que negocies con datos.' },
+    ],
   },
   {
-    emoji: '💰',
-    titulo: 'Análisis de compra',
-    cuerpo: 'Cargás tu presupuesto una sola vez (venta + ahorros + aportes) y Valora calcula automáticamente si cada propiedad entra en tu rango, considerando comisión y gastos.\n\nEsto es privado — solo lo ven los admins.',
-    hint: 'Los parámetros (comisión, gastos, otros) se configuran en la sección Configuración.',
-  },
-  {
-    emoji: '❓',
-    titulo: '¿Necesitás ayuda?',
-    cuerpo: 'Encontrás la guía completa de Valora en cualquier momento tocando el ícono (?) en la barra superior derecha.',
-    hint: 'Listo para arrancar. ¡Cargá tu primera propiedad!',
+    emoji: '🚀',
+    titulo: 'Empezá por la primera',
+    cuerpo: 'Pegá el texto de un aviso y Valora completa los datos solos. El resto lo vas ajustando a medida que la usás.',
+    hint: 'Tocá el (?) arriba a la derecha en cualquier momento para ver la guía completa de cómo funciona.',
   },
 ];
 
@@ -482,13 +481,14 @@ const Field = ({ label, locked, children, hint }) => (
 
 const OnboardingModal = ({ onClose }) => {
   const [slide, setSlide] = React.useState(0);
+  const isMobile = useIsMobile();
   const total = ONBOARDING_SLIDES.length;
   const s = ONBOARDING_SLIDES[slide];
   const esUltimo = slide === total - 1;
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(20,16,28,0.6)', backdropFilter:'blur(6px)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
-      <div style={{ background:c.surface, borderRadius:20, padding:36, maxWidth:480, width:'100%', boxShadow:'0 24px 64px rgba(30,45,74,0.25)', fontFamily:FONT }}>
+      <div style={{ background:c.surface, borderRadius:20, padding:isMobile?24:36, maxWidth:480, width:'100%', boxShadow:'0 24px 64px rgba(30,45,74,0.25)', fontFamily:FONT }}>
         {/* Progress dots */}
         <div style={{ display:'flex', gap:6, justifyContent:'center', marginBottom:28 }}>
           {ONBOARDING_SLIDES.map((_,i) => (
@@ -500,9 +500,21 @@ const OnboardingModal = ({ onClose }) => {
         <div style={{ textAlign:'center', marginBottom:28 }}>
           <div style={{ fontSize:48, marginBottom:16, lineHeight:1 }}>{s.emoji}</div>
           <h2 style={{ margin:'0 0 12px', fontSize:22, fontWeight:700, letterSpacing:'-0.01em', color:c.text }}>{s.titulo}</h2>
-          <p style={{ margin:'0 0 16px', fontSize:14, color:c.textMuted, lineHeight:1.7, whiteSpace:'pre-line' }}>{s.cuerpo}</p>
+          <p style={{ margin:`0 0 ${s.bullets ? 16 : 0}px`, fontSize:14, color:c.textMuted, lineHeight:1.7 }}>{s.cuerpo}</p>
+          {s.bullets && (
+            <div style={{ textAlign:'left', margin:'0 auto', maxWidth:380, display:'flex', flexDirection:'column', gap:11 }}>
+              {s.bullets.map((b, i) => (
+                <div key={i} style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+                  <div style={{ width:7, height:7, borderRadius:'50%', background:c.accent, marginTop:7, flexShrink:0 }} />
+                  <div style={{ fontSize:13.5, color:c.textMuted, lineHeight:1.6 }}>
+                    <strong style={{ color:c.text, fontWeight:600 }}>{b.destacado}</strong>{' '}{b.texto}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {s.hint && (
-            <div style={{ padding:'10px 16px', background:c.accentSoft, borderRadius:10, fontSize:13, color:c.accent, fontWeight:500 }}>
+            <div style={{ marginTop:16, padding:'10px 16px', background:c.accentSoft, borderRadius:10, fontSize:13, color:c.accent, fontWeight:500 }}>
               {s.hint}
             </div>
           )}
@@ -519,7 +531,7 @@ const OnboardingModal = ({ onClose }) => {
             </Button>
           ) : (
             <Button variant="primary" onClick={onClose} style={{ flex:1 }}>
-              ¡Arrancar! 🚀
+              Arrancar 🚀
             </Button>
           )}
         </div>
