@@ -2860,22 +2860,34 @@ const DetalleView = ({ prop, setProp, criterios, presupuesto, config, isAdmin, u
             <div style={{ background:c.surfaceAlt, borderRadius:12, padding:16, border:`1px solid ${c.border}` }}>
               <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>En el mercado</div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:8 }}>
-                <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
-                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Precio / m²</div>
-                  <div style={{ fontSize:isMobile?14:16, fontWeight:700, letterSpacing:isMobile?'-0.02em':undefined }}>{usdM2?fmtUSDk(usdM2):'—'}</div>
-                  {m2DiffPct!=null && <div style={{ fontSize:11, marginTop:4, color:m2DiffPct>0?c.red:c.green, fontWeight:600 }}>{m2DiffPct>0?'+':''}{m2DiffPct.toFixed(0)}% vs barrio</div>}
-                  {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSDk(promBarrio)}/m²</div>}
-                </div>
-                <div style={{ background:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${c.border}` }}>
-                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Publicado</div>
-                  <div style={{ fontSize:isMobile?14:16, fontWeight:700 }}>{diasMercado!=null?`${diasMercado}d`:'—'}</div>
-                  {diasMercado!=null && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>en el mercado</div>}
-                </div>
-                <div style={{ background:viewsSemaforo?`${viewsSemaforo.color}14`:c.surface, borderRadius:10, padding:isMobile?'12px 10px':'12px 14px', border:`1px solid ${viewsSemaforo?`${viewsSemaforo.color}33`:c.border}` }}>
-                  <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Demanda</div>
-                  <div style={{ fontSize:isMobile?14:16, fontWeight:700 }}>{viewsDia!=null?`${viewsDia.toFixed(1)}/día`:'—'}</div>
-                  {viewsSemaforo && <div style={{ fontSize:11, color:viewsSemaforo.color, marginTop:4, fontWeight:600 }}>{viewsSemaforo.label}</div>}
-                </div>
+                {(() => {
+                  const pad = isMobile ? '12px 10px' : '12px 14px';
+                  const numStyle = { fontSize:isMobile?16:18, fontWeight:700, letterSpacing:isMobile?'-0.02em':undefined };
+                  const uniStyle = { fontSize:12, fontWeight:400 };
+                  // Precio/m²: rojo si caro vs barrio, verde si barato
+                  const precioTint = m2DiffPct==null ? null : m2DiffPct>0 ? c.red : c.green;
+                  // Publicado: ámbar si lleva >90 días (margen de negociación)
+                  const pubTint = (diasMercado!=null && diasMercado>90) ? c.amber : null;
+                  const cardStyle = tint => ({ background:tint?`${tint}14`:c.surface, borderRadius:10, padding:pad, border:`1px solid ${tint?`${tint}33`:c.border}` });
+                  return (<>
+                    <div style={cardStyle(precioTint)}>
+                      <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Precio / m²</div>
+                      <div style={numStyle}>{usdM2!=null ? <>{fmtUSD(usdM2)}<span style={uniStyle}> /m²</span></> : '—'}</div>
+                      {m2DiffPct!=null && <div style={{ fontSize:11, marginTop:4, color:precioTint, fontWeight:600 }}>{m2DiffPct>0?'+':''}{m2DiffPct.toFixed(0)}% vs barrio</div>}
+                      {m2DiffPct==null && promBarrio && <div style={{ fontSize:11, color:c.textSubtle, marginTop:4 }}>barrio {fmtUSD(promBarrio)}/m²</div>}
+                    </div>
+                    <div style={cardStyle(pubTint)}>
+                      <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Publicado</div>
+                      <div style={numStyle}>{diasMercado!=null ? <>{diasMercado}<span style={uniStyle}> días</span></> : '—'}</div>
+                      {diasMercado!=null && <div style={{ fontSize:11, color:pubTint||c.textSubtle, marginTop:4, fontWeight:pubTint?600:400 }}>{pubTint?'hace mucho':'en el mercado'}</div>}
+                    </div>
+                    <div style={cardStyle(viewsSemaforo?viewsSemaforo.color:null)}>
+                      <div style={{ fontSize:11, color:c.textMuted, marginBottom:4 }}>Demanda</div>
+                      <div style={numStyle}>{viewsDia!=null ? <>{viewsDia.toFixed(1).replace('.',',')}<span style={uniStyle}> views/día</span></> : '—'}</div>
+                      {viewsSemaforo && <div style={{ fontSize:11, color:viewsSemaforo.color, marginTop:4, fontWeight:600 }}>{viewsSemaforo.label}</div>}
+                    </div>
+                  </>);
+                })()}
               </div>
             </div>
 
