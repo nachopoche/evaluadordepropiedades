@@ -1317,7 +1317,16 @@ const ListaView = ({ propiedades, criterios, presupuesto, config, isAdmin, filtr
       </div>
 
       {filtradas.length === 0 ? (
-        propiedades.length === 0 ? (
+        cargandoLista ? (
+          /* --- CREANDO LA PRIMERA PROPIEDAD: evita el parpadeo a la pantalla vacía --- */
+          <Card style={{ padding:isMobile?32:48, textAlign:'center', background:c.surface }}>
+            <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+              <LogoV size={48} />
+            </div>
+            <div style={{ fontSize:16, fontWeight:600, color:c.text }}>Creando propiedad…</div>
+            <div style={{ fontSize:13, color:c.textMuted, marginTop:6 }}>Detectando los datos del aviso</div>
+          </Card>
+        ) : propiedades.length === 0 ? (
           /* --- ESTADO VACÍO REAL: invitación a pegar el primer aviso --- */
           <Card style={{ padding:isMobile?22:36, textAlign:'center', border:`1.5px solid ${c.accent}33`, background:`linear-gradient(180deg, ${c.accentSoft}, ${c.surface} 70%)` }}>
             <div style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
