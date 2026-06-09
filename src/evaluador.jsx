@@ -4213,6 +4213,7 @@ export default function App() {
             onboardingVisto: false,
             createdAt: new Date().toISOString(),
           });
+          setShowOnboarding(true);
         }
         setUserDoc({ id: user.uid, email: user.email, displayName: user.displayName });
         await trackLogin(user.uid, user.email, user.displayName || user.email.split('@')[0]);
